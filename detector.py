@@ -26,6 +26,8 @@ from skimage.morphology import closing, square
 from skimage.color import label2rgb
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import cv2
+
 
 dicesToRead = [
     '01', '02', '03', '04', '05',
@@ -36,7 +38,7 @@ dicesToRead = [
 ]
 
 # dicesToRead = [
-#    '09'
+#    '01'
 # ]
 
 def drawDiceImage(i, img):
@@ -77,28 +79,34 @@ def sort_by_key(values, key, rev=True):
 def parse_image(gamma, img, l, sig, u):
     image = getEdges(img, gamma, sig, l, u)
     regions = find_regions(image)
-    # ax.imshow(img)
+    fig, ax = plt.subplots(figsize=(10, 6))
+
     values = []
     for region in regions:
-        validate_region(region, values, lambda rect: rect['area'] >= 70)
+        validate_region(region, values, lambda rect: rect['area'] >= 70, 'orange')
     values = get_rectangles_with_dim(values, 2)
 
     if len(values) > 0:
         firstOk = values[0]
-
         filtered = [x for x in values if x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
-        # print([x['area'] for x in filtered])
         i = 1
         total_length = len(filtered)
         if total_length > 0:
-            fig, ax = plt.subplots(figsize=(10, 6))
             for f in filtered:
-                find_on_dice(img, f, i, total_length)
+                dots_on_dice = find_on_dice(img, f, i)
+                for dot in dots_on_dice:
+                    new_x = dot['rect'].get_x() + f['minx']
+                    new_y = dot['rect'].get_y() + f['miny']
+                    dot['rect'].set_xy((new_x, new_y))
+                    ax.add_patch(dot['rect'])
                 i += 1
-                # ax.add_patch(f['rect'])
-                # ax.imshow(img[f['miny']:f['maxy'], f['minx']:f['maxx']])
-                # return fig
-
+                dots_amount = len(dots_on_dice)
+                if dots_amount > 0:
+                    size = len(img)/250
+                    cv2.putText(img, str(dots_amount), (f['minx'], f['miny']), 2, fontScale=size, #3
+                                color=(0, 140, 150), thickness=max(int(size), 2))
+                    ax.add_patch(f['rect'])
+    ax.imshow(img)
 
 def find_regions(image):
     thresh = threshold_otsu(image)
@@ -108,25 +116,23 @@ def find_regions(image):
     return regionprops(label_image)
 
 
-def validate_region(region, values, validation_fun):
+def validate_region(region, values, validation_fun, color='blue'):
     miny, minx, maxy, maxx = region.bbox
     height = maxy - miny
     width = maxx - minx
     rect = mpatches.Rectangle((minx, miny), width, height,
-                              fill=False, edgecolor='blue', linewidth=2)
+                              fill=False, edgecolor=color, linewidth=2)
     rect_repr = {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy, "rect": rect, "area": region.area,
                  "width": width, "height": height, 'rarea': width * height, 'fill': region.convex_area}
     if validation_fun(rect_repr):
         values.append(rect_repr)
-        # ax.add_patch(rect)
 
 
-def find_on_dice(org_img, dice, i, total):
+def find_on_dice(org_img, dice, i):
     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
-    ax = drawDiceImageAligned(total, i, dice_img_copy)
     dice_img = getEdges(dice_img_copy, 1, 1)
     regions = find_regions(dice_img)
-    ax.imshow(dice_img_copy)
+
     values = []
     img_size = len(dice_img_copy) * len(dice_img_copy[0])
     for region in regions:
@@ -134,12 +140,11 @@ def find_on_dice(org_img, dice, i, total):
     print(i)
     ratio = 1.4
     filtered = get_rectangles_with_dim(values, ratio)
+
     if len(filtered) > 0:
         filtered = filter_dots(filtered, ratio)
-        for value in filtered:
-            # print(value['rect'])
-            ax.add_patch(value['rect'])
 
+    return filtered
 
 def filter_dots(filtered, ratio):
     filtered = remove_mistaken_dots(filtered, ratio)

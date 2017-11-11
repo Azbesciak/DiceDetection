@@ -39,13 +39,14 @@ dicesToRead = [
 
 
 def drawDiceImage(i, img):
-    plt.subplot(6,3,i)
+    plt.subplot(6, 3, i)
     plt.imshow(img)
 
 def drawDiceImageAligned(total, i, img):
     in_row = int(total / 3)
-    plt.subplot(in_row, int(total/in_row), i)
+    ax = plt.subplot(in_row, int(total/in_row), i)
     plt.imshow(img)
+    return ax
 
 
 dices = [io.imread('./dices/dice{0}.jpg'.format(i)) for i in dicesToRead]
@@ -151,8 +152,10 @@ def validate_region(region, values, validation_fun):
 #     drawDiceImageAligned(6, i, circles)
 
 def find_on_dice(org_img, dice, i, ax):
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # fig, ax = plt.subplots(figsize=(10, 6))
+
     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
+    ax = drawDiceImageAligned(6, i, dice_img_copy)
     dice_img = getEdges(dice_img_copy, 1, 1)
     regions = find_regions(dice_img)
     ax.imshow(dice_img_copy)
@@ -167,7 +170,7 @@ def find_on_dice(org_img, dice, i, ax):
     for value in filtered:
         print(value['rect'])
         ax.add_patch(value['rect'])
-    # drawDiceImageAligned(6, i, dice_img_copy)
+
 
 
 

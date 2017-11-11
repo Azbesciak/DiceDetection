@@ -28,13 +28,14 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 dicesToRead = [
-    '01'
-   #  , '02', '03','04','05',
-   # '06','07','08', '09', '10',
-   # '11', '12','13','14','15',
-   # '16','17', '18', '19', '20',
-   # '21'
+    '01', '02', '03', '04', '05',
+    '06', '07', '08', '09', '10',
+    '11', '12', '13', '14', '15',
+    '16', '17', '18', '19', '20',
+    '21'
 ]
+
+
 # dicesToRead = ['08']
 
 
@@ -42,9 +43,10 @@ def drawDiceImage(i, img):
     plt.subplot(6, 3, i)
     plt.imshow(img)
 
+
 def drawDiceImageAligned(total, i, img):
-    in_row = int(total / 3)
-    ax = plt.subplot(in_row, int(total/in_row), i)
+    in_row = int(total / 3) + 1
+    ax = plt.subplot(in_row, int(total / in_row), i)
     plt.imshow(img)
     return ax
 
@@ -54,15 +56,16 @@ dices = [io.imread('./dices/dice{0}.jpg'.format(i)) for i in dicesToRead]
 
 def getEdges(img, gamma=0.7, sig=3, l=0, u=100):
     img = rgb2gray(img)
-    pp, pk = np.percentile(img,(l,u))
-    img = exposure.rescale_intensity(img,in_range=(pp,pk))
+    pp, pk = np.percentile(img, (l, u))
+    img = exposure.rescale_intensity(img, in_range=(pp, pk))
     from skimage import feature
     img = img ** gamma
     img = ski.feature.canny(img, sigma=sig)
     return img
 
+
 def get_rectangles_with_dim(rectangles, dim_upper):
-    values = [x for x in rectangles if dim_upper >= x["width"] / x["height"] >= 1/dim_upper]
+    values = [x for x in rectangles if dim_upper >= x["width"] / x["height"] >= 1 / dim_upper]
     sort_by_key(values, 'rarea')
     return values
 
@@ -86,13 +89,15 @@ def parse_image(gamma, img, l, sig, u):
         filtered = [x for x in values if x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
         print([x['area'] for x in filtered])
         i = 1
-        fig, ax = plt.subplots(figsize=(10, 6))
-        for f in filtered:
-            find_on_dice(img, f, i, ax)
-            i += 1
-            # ax.add_patch(f['rect'])  # <- zastąp, zakomentuj poniższe
-            # ax.imshow(img[f['miny']:f['maxy'], f['minx']:f['maxx']])
-    # return fig
+        total_length = len(filtered)
+        if total_length > 0:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for f in filtered:
+                find_on_dice(img, f, i, total_length)
+                i += 1
+                # ax.add_patch(f['rect'])  # <- zastąp, zakomentuj poniższe
+                # ax.imshow(img[f['miny']:f['maxy'], f['minx']:f['maxx']])
+                # return fig
 
 
 def find_regions(image):
@@ -118,6 +123,7 @@ def validate_region(region, values, validation_fun):
                        "maxy": maxy, "rect": rect, "area": region.area,
                        "width": width, "height": height, 'rarea': width * height})
         #                 ax.add_patch(rect)
+
 
 # EXPERIMENTAL
 # def findCircles(image, edges):
@@ -151,11 +157,11 @@ def validate_region(region, values, validation_fun):
 #     circles = findCircles(dice_img_copy, dice_img)
 #     drawDiceImageAligned(6, i, circles)
 
-def find_on_dice(org_img, dice, i, ax):
+def find_on_dice(org_img, dice, i, total):
     # fig, ax = plt.subplots(figsize=(10, 6))
 
     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
-    ax = drawDiceImageAligned(6, i, dice_img_copy)
+    ax = drawDiceImageAligned(total, i, dice_img_copy)
     dice_img = getEdges(dice_img_copy, 1, 1)
     regions = find_regions(dice_img)
     ax.imshow(dice_img_copy)
@@ -164,15 +170,13 @@ def find_on_dice(org_img, dice, i, ax):
         validate_region(region, values, lambda area: 10 <= area <= 30)
     print(i)
     filtered = get_rectangles_with_dim(values, 1.4)
-    center_point = int(len(filtered) / 2)
-    center = filtered[center_point]
-    filtered = [f for f in filtered if center['rarea'] * 1/1.4 <= f['rarea'] <= center['rarea'] * 1.4]
-    for value in filtered:
-        print(value['rect'])
-        ax.add_patch(value['rect'])
-
-
-
+    if len(filtered) > 0:
+        center_point = int(len(filtered) / 2)
+        center = filtered[center_point]
+        filtered = [f for f in filtered if center['rarea'] * 1 / 1.4 <= f['rarea'] <= center['rarea'] * 1.4]
+        for value in filtered:
+            print(value['rect'])
+            ax.add_patch(value['rect'])
 
 
 def drawDices(gamma=0.4, sig=2.7, l=91, u=90):  # RECTANGLES
@@ -187,6 +191,7 @@ def drawDices(gamma=0.4, sig=2.7, l=91, u=90):  # RECTANGLES
     plt.show()
     fig.savefig("dices.pdf", facecolor="black")
     plt.close()
+
 
 # interact(drawDices, gamma=(0.1, 2, 0.1), sig=(0.1, 4, 0.1), l=(0, 100, 1), u=(0, 100, 1))
 drawDices()

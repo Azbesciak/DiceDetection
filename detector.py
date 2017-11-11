@@ -35,6 +35,11 @@ dicesToRead = [
     '21'
 ]
 
+#
+# dicesToRead = [
+#    '09'
+# ]
+
 def drawDiceImage(i, img):
     plt.subplot(6, 3, i)
     plt.imshow(img)
@@ -83,7 +88,7 @@ def parse_image(gamma, img, l, sig, u):
         firstOk = values[0]
 
         filtered = [x for x in values if x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
-        print([x['area'] for x in filtered])
+        # print([x['area'] for x in filtered])
         i = 1
         total_length = len(filtered)
         if total_length > 0:
@@ -111,7 +116,7 @@ def validate_region(region, values, validation_fun):
     rect = mpatches.Rectangle((minx, miny), width, height,
                               fill=False, edgecolor='blue', linewidth=2)
     rect_repr = {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy, "rect": rect, "area": region.area,
-               "width": width, "height": height, 'rarea': width * height}
+                 "width": width, "height": height, 'rarea': width * height, 'fill': region.convex_area}
     if validation_fun(rect_repr):
         values.append(rect_repr)
         # ax.add_patch(rect)
@@ -120,7 +125,7 @@ def validate_region(region, values, validation_fun):
 def find_on_dice(org_img, dice, i, total):
     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
     ax = drawDiceImageAligned(total, i, dice_img_copy)
-    dice_img = getEdges(dice_img_copy, 1, 1, 0, 100)
+    dice_img = getEdges(dice_img_copy, 1, 1)
     regions = find_regions(dice_img)
     ax.imshow(dice_img_copy)
     values = []
@@ -131,12 +136,58 @@ def find_on_dice(org_img, dice, i, total):
     ratio = 1.4
     filtered = get_rectangles_with_dim(values, ratio)
     if len(filtered) > 0:
-        center_point = int(len(filtered) / 2)
-        center = filtered[center_point]
-        filtered = [f for f in filtered if center['rarea'] * 1/ratio <= f['rarea'] <= center['rarea'] * ratio]
+        filtered = filter_dots(filtered, ratio)
         for value in filtered:
-            print(value['rect'])
+            # print(value['rect'])
             ax.add_patch(value['rect'])
+
+
+def filter_dots(filtered, ratio):
+    filtered = remove_mistaken_dots(filtered, ratio)
+    filtered = remove_overlaped(filtered)
+    max_area = max(get_rareas(filtered))
+    filtered = [f for f in filtered if f['rarea'] > 0.5 * max_area]
+    return filtered
+
+
+def remove_mistaken_dots(filtered, ratio):
+    by_rarea = get_rareas(filtered)
+    center_point = np.percentile(by_rarea, 80)
+    filtered_first = [f for f in filtered if center_point * 1 / ratio <= f['rarea'] <= center_point * ratio]
+    if len(filtered_first) < 0.3 * len(filtered):
+        ratio = ratio ** 2
+        filtered_first = [f for f in filtered if center_point * 1 / ratio <= f['rarea'] <= center_point * ratio]
+        if len(filtered_first) < 0.3 * len(filtered):
+            center_point = sum(by_rarea) / len(by_rarea)
+            filtered = [f for f in filtered if center_point * 1 / ratio <= f['rarea'] <= center_point * ratio]
+    else:
+        filtered = filtered_first
+    return filtered
+
+
+def get_rareas(filtered):
+    by_rarea = [f['rarea'] for f in filtered]
+    return by_rarea
+
+
+def remove_overlaped(filtered):
+    res = []
+    for f1 in filtered:
+        isOk = True
+        for f2 in filtered:
+            if f1 != f2:
+                if f1['rarea'] < f2['rarea']:
+                    if (sum([
+                        f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
+                        f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
+                        f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx'],
+                        f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx']
+                    ]) >= 2):
+                        isOk = False
+                        break
+        if isOk:
+            res.append(f1)
+    return res
 
 
 def drawDices(gamma=0.4, sig=2.7, l=91, u=90):  # RECTANGLES
@@ -150,5 +201,6 @@ def drawDices(gamma=0.4, sig=2.7, l=91, u=90):  # RECTANGLES
     plt.show()
     fig.savefig("dices.pdf", facecolor="black")
     plt.close()
+
 
 drawDices()

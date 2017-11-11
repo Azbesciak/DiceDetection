@@ -35,7 +35,6 @@ dicesToRead = [
     '21'
 ]
 
-#
 # dicesToRead = [
 #    '09'
 # ]
@@ -71,8 +70,8 @@ def get_rectangles_with_dim(rectangles, dim_upper):
     return values
 
 
-def sort_by_key(values, key):
-    values.sort(key=lambda x: x[key], reverse=True)
+def sort_by_key(values, key, rev=True):
+    values.sort(key=lambda x: x[key], reverse=rev)
 
 
 def parse_image(gamma, img, l, sig, u):
@@ -145,6 +144,35 @@ def find_on_dice(org_img, dice, i, total):
 def filter_dots(filtered, ratio):
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = remove_overlaped(filtered)
+    filtered = remove_smaller_than_half_of_the_biggest(filtered)
+    filtered = remove_the_farthest_if_more_than_six(filtered)
+    return filtered
+
+
+def remove_the_farthest_if_more_than_six(filtered):
+    for f in filtered:
+        f['center'] = {
+            'x': int((f['minx'] + f['maxx']) / 2),
+            'y': int((f['miny'] + f['maxy']) / 2)
+        }
+    for f1 in filtered:
+        f1['total_dist'] = 0
+        for f2 in filtered:
+            f1['total_dist'] += get_distance_between(f1, f2)
+    sort_by_key(filtered, 'total_dist', False)
+    if len(filtered) > 6:
+        filtered = filtered[0:6]
+    return filtered
+
+
+def get_distance_between(f1, f2):
+    return sqrt(
+        abs(f1['center']['x'] - f2['center']['x']) ** 2 +
+        abs(f1['center']['y'] - f2['center']['y']) ** 2
+    )
+
+
+def remove_smaller_than_half_of_the_biggest(filtered):
     max_area = max(get_rareas(filtered))
     filtered = [f for f in filtered if f['rarea'] > 0.5 * max_area]
     return filtered
@@ -166,8 +194,7 @@ def remove_mistaken_dots(filtered, ratio):
 
 
 def get_rareas(filtered):
-    by_rarea = [f['rarea'] for f in filtered]
-    return by_rarea
+    return [f['rarea'] for f in filtered]
 
 
 def remove_overlaped(filtered):
@@ -190,7 +217,7 @@ def remove_overlaped(filtered):
     return res
 
 
-def drawDices(gamma=0.4, sig=2.7, l=91, u=90):  # RECTANGLES
+def drawDices(gamma=0.4, sig=2.7, l=91, u=90):
     fig = plt.figure(facecolor="black", figsize=(60, 60))
     for i, image in enumerate(dices):
         try:

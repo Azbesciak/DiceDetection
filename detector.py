@@ -35,10 +35,6 @@ dicesToRead = [
     '21'
 ]
 
-
-# dicesToRead = ['08']
-
-
 def drawDiceImage(i, img):
     plt.subplot(6, 3, i)
     plt.imshow(img)
@@ -80,7 +76,7 @@ def parse_image(gamma, img, l, sig, u):
     # ax.imshow(img)
     values = []
     for region in regions:
-        validate_region(region, values, lambda area: area >= 70)
+        validate_region(region, values, lambda rect: rect['area'] >= 70)
     values = get_rectangles_with_dim(values, 2)
 
     if len(values) > 0:
@@ -95,7 +91,7 @@ def parse_image(gamma, img, l, sig, u):
             for f in filtered:
                 find_on_dice(img, f, i, total_length)
                 i += 1
-                # ax.add_patch(f['rect'])  # <- zastąp, zakomentuj poniższe
+                # ax.add_patch(f['rect'])
                 # ax.imshow(img[f['miny']:f['maxy'], f['minx']:f['maxx']])
                 # return fig
 
@@ -103,77 +99,41 @@ def parse_image(gamma, img, l, sig, u):
 def find_regions(image):
     thresh = threshold_otsu(image)
     bw = closing(image > thresh, square(2))
-    # remove artifacts connected to image border
     cleared = clear_border(bw)
-    # label image regions
     label_image = label(cleared)
-    image_label_overlay = label2rgb(label_image, image=image)
-    # fig, ax = plt.subplots(figsize=(10, 6))
     return regionprops(label_image)
 
 
 def validate_region(region, values, validation_fun):
-    if validation_fun(region.area):
-        miny, minx, maxy, maxx = region.bbox
-        height = maxy - miny
-        width = maxx - minx
-        rect = mpatches.Rectangle((minx, miny), width, height,
-                                  fill=False, edgecolor='blue', linewidth=2)
-        values.append({"minx": minx, "miny": miny, "maxx": maxx,
-                       "maxy": maxy, "rect": rect, "area": region.area,
-                       "width": width, "height": height, 'rarea': width * height})
-        #                 ax.add_patch(rect)
+    miny, minx, maxy, maxx = region.bbox
+    height = maxy - miny
+    width = maxx - minx
+    rect = mpatches.Rectangle((minx, miny), width, height,
+                              fill=False, edgecolor='blue', linewidth=2)
+    rect_repr = {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy, "rect": rect, "area": region.area,
+               "width": width, "height": height, 'rarea': width * height}
+    if validation_fun(rect_repr):
+        values.append(rect_repr)
+        # ax.add_patch(rect)
 
-
-# EXPERIMENTAL
-# def findCircles(image, edges):
-#     # Detect two radii
-#     hough_radii = np.arange(2, 15, 2)
-#     hough_res = hough_circle(edges, hough_radii)
-#
-#     accums, cx, cy, radii = hough_circle_peaks(hough_res, hough_radii,
-#                                                total_num_peaks=6)
-#
-#     # Draw them
-#     # fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(10, 4))
-#     image = gray2rgb(image)
-#     for center_y, center_x, radius in zip(cy, cx, radii):
-#         circy, circx = circle_perimeter(center_y, center_x, radius)
-#         x = []
-#         y = []
-#         for i in range(len(circy)):
-#             if 0 <= circy[i] < len(image) and 0 <= circx[i] < len(image[0]):
-#                 x.append(circx[i])
-#                 y.append(circy[i])
-#         # if 0 <= circy <= len(image) and 0 <= circx <= len(image[0]):
-#         image[y, x] = (220, 20, 20)
-#     return image
-
-
-# def find_on_dice(org_img, dice, i, ax):
-#     # fig, ax = plt.subplots(figsize=(10, 6))
-#     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
-#     dice_img = getEdges(dice_img_copy, 1, 1)
-#     circles = findCircles(dice_img_copy, dice_img)
-#     drawDiceImageAligned(6, i, circles)
 
 def find_on_dice(org_img, dice, i, total):
-    # fig, ax = plt.subplots(figsize=(10, 6))
-
     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
     ax = drawDiceImageAligned(total, i, dice_img_copy)
-    dice_img = getEdges(dice_img_copy, 1, 1)
+    dice_img = getEdges(dice_img_copy, 1, 1, 0, 100)
     regions = find_regions(dice_img)
     ax.imshow(dice_img_copy)
     values = []
+    img_size = len(dice_img_copy) * len(dice_img_copy[0])
     for region in regions:
-        validate_region(region, values, lambda area: 10 <= area <= 30)
+        validate_region(region, values, lambda rect: img_size * .005 <= rect['rarea'] <= img_size * .06)
     print(i)
-    filtered = get_rectangles_with_dim(values, 1.4)
+    ratio = 1.4
+    filtered = get_rectangles_with_dim(values, ratio)
     if len(filtered) > 0:
         center_point = int(len(filtered) / 2)
         center = filtered[center_point]
-        filtered = [f for f in filtered if center['rarea'] * 1 / 1.4 <= f['rarea'] <= center['rarea'] * 1.4]
+        filtered = [f for f in filtered if center['rarea'] * 1/ratio <= f['rarea'] <= center['rarea'] * ratio]
         for value in filtered:
             print(value['rect'])
             ax.add_patch(value['rect'])
@@ -181,7 +141,6 @@ def find_on_dice(org_img, dice, i, total):
 
 def drawDices(gamma=0.4, sig=2.7, l=91, u=90):  # RECTANGLES
     fig = plt.figure(facecolor="black", figsize=(60, 60))
-    i = 1
     for i, image in enumerate(dices):
         try:
             parse_image(gamma, image, l, sig, u)
@@ -192,6 +151,4 @@ def drawDices(gamma=0.4, sig=2.7, l=91, u=90):  # RECTANGLES
     fig.savefig("dices.pdf", facecolor="black")
     plt.close()
 
-
-# interact(drawDices, gamma=(0.1, 2, 0.1), sig=(0.1, 4, 0.1), l=(0, 100, 1), u=(0, 100, 1))
 drawDices()

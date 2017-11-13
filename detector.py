@@ -81,32 +81,40 @@ def parse_image(gamma, img, l, sig, u):
     regions = find_regions(image)
     fig, ax = plt.subplots(figsize=(10, 6))
 
+    filtered_dices = filter_dices(regions)
+
+    if len(filtered_dices) > 0:
+        firstOk = filtered_dices[0]
+        filtered = [x for x in filtered_dices if x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
+        total_length = len(filtered)
+        if total_length > 0:
+            draw_dice(ax, filtered, img)
+    ax.imshow(img)
+
+
+def draw_dice(ax, filtered, img):
+    for f in filtered:
+        dots_on_dice = find_on_dice(img, f)
+        for dot in dots_on_dice:
+            new_x = dot['rect'].get_x() + f['minx']
+            new_y = dot['rect'].get_y() + f['miny']
+            dot['rect'].set_xy((new_x, new_y))
+            ax.add_patch(dot['rect'])
+        dots_amount = len(dots_on_dice)
+        if dots_amount > 0:
+            size = len(img) / 250
+            cv2.putText(img, str(dots_amount), (f['minx'], f['miny']), 2, fontScale=size,  # 3
+                        color=(0, 140, 150), thickness=max(int(size), 2))
+            ax.add_patch(f['rect'])
+
+
+def filter_dices(regions):
     values = []
     for region in regions:
         validate_region(region, values, lambda rect: rect['area'] >= 70, 'orange')
     values = get_rectangles_with_dim(values, 2)
+    return values
 
-    if len(values) > 0:
-        firstOk = values[0]
-        filtered = [x for x in values if x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
-        i = 1
-        total_length = len(filtered)
-        if total_length > 0:
-            for f in filtered:
-                dots_on_dice = find_on_dice(img, f, i)
-                for dot in dots_on_dice:
-                    new_x = dot['rect'].get_x() + f['minx']
-                    new_y = dot['rect'].get_y() + f['miny']
-                    dot['rect'].set_xy((new_x, new_y))
-                    ax.add_patch(dot['rect'])
-                i += 1
-                dots_amount = len(dots_on_dice)
-                if dots_amount > 0:
-                    size = len(img)/250
-                    cv2.putText(img, str(dots_amount), (f['minx'], f['miny']), 2, fontScale=size, #3
-                                color=(0, 140, 150), thickness=max(int(size), 2))
-                    ax.add_patch(f['rect'])
-    ax.imshow(img)
 
 def find_regions(image):
     thresh = threshold_otsu(image)
@@ -128,7 +136,7 @@ def validate_region(region, values, validation_fun, color='blue'):
         values.append(rect_repr)
 
 
-def find_on_dice(org_img, dice, i):
+def find_on_dice(org_img, dice):
     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
     dice_img = getEdges(dice_img_copy, 1, 1)
     regions = find_regions(dice_img)
@@ -137,7 +145,6 @@ def find_on_dice(org_img, dice, i):
     img_size = len(dice_img_copy) * len(dice_img_copy[0])
     for region in regions:
         validate_region(region, values, lambda rect: img_size * .005 <= rect['rarea'] <= img_size * .06)
-    print(i)
     ratio = 1.4
     filtered = get_rectangles_with_dim(values, ratio)
 
@@ -145,6 +152,7 @@ def find_on_dice(org_img, dice, i):
         filtered = filter_dots(filtered, ratio)
 
     return filtered
+
 
 def filter_dots(filtered, ratio):
     filtered = remove_mistaken_dots(filtered, ratio)

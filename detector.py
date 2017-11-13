@@ -11,6 +11,7 @@ from skimage.color import rgb2hsv, hsv2rgb, rgb2gray, gray2rgb
 from skimage.filters.edges import convolve
 from matplotlib import pylab as plt
 import numpy as np
+from skimage import feature
 from numpy import array
 from IPython.display import display
 from ipywidgets import interact, interactive, fixed
@@ -28,7 +29,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import cv2
 
-
 dicesToRead = [
     '01', '02', '03', '04', '05',
     '06', '07', '08', '09', '10',
@@ -38,8 +38,17 @@ dicesToRead = [
 ]
 
 # dicesToRead = [
-#    '01'
+#     '18', '13'
 # ]
+
+params = [
+        {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: getEdges(img, p)},
+        # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: getEdges(img, p)},
+        # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 85, 'edgeFunc': lambda img, p: simpleGray(img, p)},
+    ]
+
+dices = [io.imread('./dices/dice{0}.jpg'.format(i)) for i in dicesToRead]
+
 
 def drawDiceImage(i, img):
     plt.subplot(6, 3, i)
@@ -53,18 +62,20 @@ def drawDiceImageAligned(total, i, img):
     return ax
 
 
-dices = [io.imread('./dices/dice{0}.jpg'.format(i)) for i in dicesToRead]
-
-
-def getEdges(img, gamma=0.7, sig=3, l=0, u=100):
+def getEdges(img, p):
     img = rgb2gray(img)
-    pp, pk = np.percentile(img, (l, u))
-    img = exposure.rescale_intensity(img, in_range=(pp, pk))
-    from skimage import feature
-    img = img ** gamma
-    img = ski.feature.canny(img, sigma=sig)
+    if 'l' in p and 'u' in p:
+        pp, pk = np.percentile(img, (p['l'], p['u']))
+        img = exposure.rescale_intensity(img, in_range=(pp, pk))
+    if 'gamma' in p:
+        # img = ski.exposure.adjust_gamma(img, p['gamma'])
+        img = img ** p['gamma']
+    img = ski.feature.canny(img, sigma=p['sig'])
     return img
 
+
+def simpleGray(img, p):
+    return rgb2gray(img)
 
 def get_rectangles_with_dim(rectangles, dim_upper):
     values = [x for x in rectangles if dim_upper >= x["width"] / x["height"] >= 1 / dim_upper]
@@ -76,16 +87,32 @@ def sort_by_key(values, key, rev=True):
     values.sort(key=lambda x: x[key], reverse=rev)
 
 
-def parse_image(gamma, img, l, sig, u):
-    image = getEdges(img, gamma, sig, l, u)
+def try_to_find_dices(img):
+    filtered_dices = []
+    for p in params:
+        try:
+            dices_candidates = look_for_dices(img, p)
+            filtered_dices.extend(dices_candidates)
+        except ValueError:
+            pass
+
+    return filtered_dices
+
+
+def look_for_dices(img, params):
+    image = params['edgeFunc'](img, params)
     regions = find_regions(image)
+    return filter_dices(regions)
+
+
+def parse_image(img):
+    filtered_dices = try_to_find_dices(img)
+
     fig, ax = plt.subplots(figsize=(10, 6))
-
-    filtered_dices = filter_dices(regions)
-
     if len(filtered_dices) > 0:
         firstOk = filtered_dices[0]
-        filtered = [x for x in filtered_dices if x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
+        filtered = [x for x in filtered_dices if
+                    x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
         total_length = len(filtered)
         if total_length > 0:
             draw_dice(ax, filtered, img)
@@ -135,18 +162,23 @@ def validate_region(region, values, validation_fun, color='blue'):
     if validation_fun(rect_repr):
         values.append(rect_repr)
 
+def is_one_value_image(img):
+    return len(list(set([x for sublist in img for x in sublist]))) <= 1
+
 
 def find_on_dice(org_img, dice):
     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
-    dice_img = getEdges(dice_img_copy, 1, 1)
-    regions = find_regions(dice_img)
+    dice_img = getEdges(dice_img_copy, {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100})
+    if is_one_value_image(dice_img):
+        return []
 
-    values = []
+    regions = find_regions(dice_img)
+    valid_regions = []
     img_size = len(dice_img_copy) * len(dice_img_copy[0])
     for region in regions:
-        validate_region(region, values, lambda rect: img_size * .005 <= rect['rarea'] <= img_size * .06)
+        validate_region(region, valid_regions, lambda rect: img_size * .005 <= rect['rarea'] <= img_size * .06)
     ratio = 1.4
-    filtered = get_rectangles_with_dim(values, ratio)
+    filtered = get_rectangles_with_dim(valid_regions, ratio)
 
     if len(filtered) > 0:
         filtered = filter_dots(filtered, ratio)
@@ -230,12 +262,12 @@ def remove_overlaped(filtered):
     return res
 
 
-def drawDices(gamma=0.4, sig=2.7, l=91, u=90):
+def drawDices():
     fig = plt.figure(facecolor="black", figsize=(60, 60))
     for i, image in enumerate(dices):
         try:
-            parse_image(gamma, image, l, sig, u)
-        except ValueError:
+            parse_image(image)
+        except Exception:
             print("error with {0}".format(i))
     plt.tight_layout()
     plt.show()

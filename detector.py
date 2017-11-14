@@ -41,10 +41,16 @@ dicesToRead = [
 #     '18', '13'
 # ]
 
+dicesToRead = [
+    '08'
+]
+
 params = [
         {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: getEdges(img, p)},
-        # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: getEdges(img, p)},
-        # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 85, 'edgeFunc': lambda img, p: simpleGray(img, p)},
+        {'l': 0.6, 'u': 15.4, 'tresh': 0.1, 'edgeFunc': lambda img, p: simpleGray(img, p)},
+        {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: getEdges(img, p)},
+        {'low': 0.05, 'high': 0.3, 'sig': 3, 'edgeFunc': lambda img, p: edges_by_sharp_color(img, p)},
+        {'l': 0.6, 'u': 15.4, 'tresh': 0.4, 'lev': 0.19, 'edgeFunc': lambda img, p: edges_with_contours(img, p)}
     ]
 
 dices = [io.imread('./dices/dice{0}.jpg'.format(i)) for i in dicesToRead]
@@ -68,14 +74,47 @@ def getEdges(img, p):
         pp, pk = np.percentile(img, (p['l'], p['u']))
         img = exposure.rescale_intensity(img, in_range=(pp, pk))
     if 'gamma' in p:
-        # img = ski.exposure.adjust_gamma(img, p['gamma'])
-        img = img ** p['gamma']
+        img = exposure.adjust_gamma(img, p['gamma'])
+        # img = img ** p['gamma']
     img = ski.feature.canny(img, sigma=p['sig'])
     return img
 
 
 def simpleGray(img, p):
-    return rgb2gray(img)
+    img = rgb2gray(img)
+    pp, pk = np.percentile(img, (p['l'], p['u']))
+    img = exposure.rescale_intensity(img, in_range=(pp, pk))
+    img = filters.prewitt(img)
+    img[img > p['tresh']] = 1
+    img[img <= p['tresh']] = 0
+    return img
+
+
+def edges_by_sharp_color(img, p):
+    img = rgb2hsv(img)
+    for x in range(len(img)):
+        for y in range(len(img[0])):
+            img[x][y] = [img[x][y][0], 1, 1]
+    img = hsv2rgb(img)
+    img = rgb2gray(img)
+    img = ski.feature.canny(img, sigma=p['sig'], low_threshold=p['low'], high_threshold=p['high'])
+    return img
+
+
+def edges_with_contours(img, p):
+    pp, pk = np.percentile(img, (p['l'], p['u']));
+    img = exposure.rescale_intensity(img, in_range=(pp, pk))
+    img = rgb2gray(img)
+    blackWhite = np.zeros([len(img), len(img[0])]) + 1 - img
+    contours = measure.find_contours(blackWhite, p['lev'])
+    for contours in contours:
+        for con in contours:
+            blackWhite[int(con[0])][int(con[1])] = 1
+
+    blackWhite[blackWhite < p['tresh']] = 0
+    blackWhite[blackWhite >= p['tresh']] = 1
+    return blackWhite
+
 
 def get_rectangles_with_dim(rectangles, dim_upper):
     values = [x for x in rectangles if dim_upper >= x["width"] / x["height"] >= 1 / dim_upper]

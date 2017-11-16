@@ -47,9 +47,10 @@ dicesToRead = [
 
 params = [
         {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: getEdges(img, p)},
-        {'l': 0.6, 'u': 15.4, 'tresh': 0.1, 'edgeFunc': lambda img, p: simpleGray(img, p)},
-        {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: getEdges(img, p)},
-        {'low': 0.05, 'high': 0.3, 'sig': 3, 'edgeFunc': lambda img, p: edges_by_sharp_color(img, p)},
+        {'sig': 4, 'edgeFunc': lambda img, p: just_canny(img, p)},
+        # {'l': 0.6, 'u': 15.4, 'tresh': 0.1, 'edgeFunc': lambda img, p: simpleGray(img, p)},
+        # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: getEdges(img, p)},
+        # {'low': 0.05, 'high': 0.3, 'sig': 3, 'edgeFunc': lambda img, p: edges_by_sharp_color(img, p)},
         {'l': 0.6, 'u': 15.4, 'tresh': 0.4, 'lev': 0.19, 'edgeFunc': lambda img, p: edges_with_contours(img, p)}
     ]
 
@@ -114,6 +115,11 @@ def edges_with_contours(img, p):
     blackWhite[blackWhite < p['tresh']] = 0
     blackWhite[blackWhite >= p['tresh']] = 1
     return blackWhite
+
+def just_canny(img, p):
+    img = rgb2gray(img)
+    img = ski.feature.canny(img, sigma=p['sig'])
+    return img
 
 
 def get_rectangles_with_dim(rectangles, dim_upper):

@@ -1,4 +1,7 @@
 from __future__ import division
+
+import traceback
+
 from pylab import *
 import skimage as ski
 from skimage import data, io, filters, exposure, measure
@@ -40,25 +43,29 @@ dicesToRead = [
 # dicesToRead = [
 #     '18', '13'
 # ]
+# dicesToRead = [
+#     '08'
+# ]
 
-dicesToRead = [
-    '08'
+params_for_dices = [
+    {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
+    {'sig': 4, 'low': 0.05, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
+    # {'l': 0.6, 'u': 15.4, 'tresh': 0.1, 'edgeFunc': lambda img, p: simple_gray(img, p)},
+    # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)},
+    # {'low': 0.05, 'high': 0.3, 'sig': 3, 'edgeFunc': lambda img, p: edges_by_sharp_color(img, p)},
+    # {'l': 0.6, 'u': 15.4, 'tresh': 0.4, 'lev': 0.19, 'edgeFunc': lambda img, p: edges_with_contours(img, p)}
 ]
 
-params = [
-        {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: getEdges(img, p)},
-        {'sig': 4, 'edgeFunc': lambda img, p: just_canny(img, p)},
-        # {'l': 0.6, 'u': 15.4, 'tresh': 0.1, 'edgeFunc': lambda img, p: simpleGray(img, p)},
-        # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: getEdges(img, p)},
-        # {'low': 0.05, 'high': 0.3, 'sig': 3, 'edgeFunc': lambda img, p: edges_by_sharp_color(img, p)},
-        {'l': 0.6, 'u': 15.4, 'tresh': 0.4, 'lev': 0.19, 'edgeFunc': lambda img, p: edges_with_contours(img, p)}
-    ]
+params_for_dotes = [
+    {'sig': 0.4, 'low': 0.1, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
+    {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)}
+]
 
 dices = [io.imread('./dices/dice{0}.jpg'.format(i)) for i in dicesToRead]
 
 
 def drawDiceImage(i, img):
-    plt.subplot(6, 3, i)
+    plt.subplot(2, 3, i)
     plt.imshow(img)
 
 
@@ -69,7 +76,7 @@ def drawDiceImageAligned(total, i, img):
     return ax
 
 
-def getEdges(img, p):
+def get_edges(img, p):
     img = rgb2gray(img)
     if 'l' in p and 'u' in p:
         pp, pk = np.percentile(img, (p['l'], p['u']))
@@ -81,7 +88,7 @@ def getEdges(img, p):
     return img
 
 
-def simpleGray(img, p):
+def simple_gray(img, p):
     img = rgb2gray(img)
     pp, pk = np.percentile(img, (p['l'], p['u']))
     img = exposure.rescale_intensity(img, in_range=(pp, pk))
@@ -116,9 +123,11 @@ def edges_with_contours(img, p):
     blackWhite[blackWhite >= p['tresh']] = 1
     return blackWhite
 
-def just_canny(img, p):
+
+def just_canny_and_dilation(img, p):
     img = rgb2gray(img)
-    img = ski.feature.canny(img, sigma=p['sig'])
+    img = ski.morphology.dilation(img)
+    img = ski.feature.canny(img, sigma=p['sig'], low_threshold=p['low'], high_threshold=p['high'])
     return img
 
 
@@ -134,7 +143,7 @@ def sort_by_key(values, key, rev=True):
 
 def try_to_find_dices(img):
     filtered_dices = []
-    for p in params:
+    for p in params_for_dices:
         try:
             dices_candidates = look_for_dices(img, p)
             filtered_dices.extend(dices_candidates)
@@ -207,36 +216,59 @@ def validate_region(region, values, validation_fun, color='blue'):
     if validation_fun(rect_repr):
         values.append(rect_repr)
 
+
 def is_one_value_image(img):
     return len(list(set([x for sublist in img for x in sublist]))) <= 1
 
 
+def get_regions_from_dice(dice_img, par):
+    regions = []
+    for p in par:
+        img = p['edgeFunc'](dice_img, p)
+        if is_one_value_image(img):
+            return []
+        regions.extend(find_regions(img))
+    return regions
+
+
 def find_on_dice(org_img, dice):
     dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
-    dice_img = getEdges(dice_img_copy, {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100})
-    if is_one_value_image(dice_img):
-        return []
+    regions = get_regions_from_dice(dice_img_copy, params_for_dotes)
 
-    regions = find_regions(dice_img)
     valid_regions = []
     img_size = len(dice_img_copy) * len(dice_img_copy[0])
     for region in regions:
-        validate_region(region, valid_regions, lambda rect: img_size * .005 <= rect['rarea'] <= img_size * .06)
+        validate_region(region, valid_regions, lambda rect: img_size * .005 <= rect['rarea'] <= img_size * .15)
     ratio = 1.4
     filtered = get_rectangles_with_dim(valid_regions, ratio)
 
     if len(filtered) > 0:
-        filtered = filter_dots(filtered, ratio)
+        filtered = filter_dots(filtered, ratio, dice)
 
     return filtered
 
 
-def filter_dots(filtered, ratio):
+def filter_dots(filtered, ratio, dice):
+    filtered = remove_in_corners(filtered, dice)
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = remove_overlaped(filtered)
     filtered = remove_smaller_than_half_of_the_biggest(filtered)
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
+
+
+def remove_in_corners(filtered, dice):
+    res = []
+    bound_lim = 0.05
+    width_bound = dice['width'] * bound_lim
+    height_bound = dice['height'] * bound_lim
+    for f in filtered:
+        if not ((width_bound > f['minx'] and height_bound > f['miny']) or
+                (width_bound > f['minx'] and dice['height'] - height_bound < f['maxy']) or
+                (dice['width'] - width_bound < f['maxx'] and height_bound > f['miny']) or
+                (dice['width'] - width_bound < f['maxx'] and dice['height'] - height_bound < f['maxy'])):
+            res.append(f)
+    return res
 
 
 def remove_the_farthest_if_more_than_six(filtered):
@@ -263,7 +295,10 @@ def get_distance_between(f1, f2):
 
 
 def remove_smaller_than_half_of_the_biggest(filtered):
-    max_area = max(get_rareas(filtered))
+    rareas = get_rareas(filtered)
+    if len(rareas) < 1:
+        return []
+    max_area = max(rareas)
     filtered = [f for f in filtered if f['rarea'] > 0.5 * max_area]
     return filtered
 
@@ -295,10 +330,10 @@ def remove_overlaped(filtered):
             if f1 != f2:
                 if f1['rarea'] < f2['rarea']:
                     if (sum([
-                        f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
-                        f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
-                        f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx'],
-                        f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx']
+                            f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
+                            f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
+                            f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx'],
+                            f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx']
                     ]) >= 2):
                         isOk = False
                         break
@@ -307,17 +342,18 @@ def remove_overlaped(filtered):
     return res
 
 
-def drawDices():
+def draw_dices():
     fig = plt.figure(facecolor="black", figsize=(60, 60))
     for i, image in enumerate(dices):
         try:
             parse_image(image)
         except Exception:
             print("error with {0}".format(i))
+            traceback.print_exc()
     plt.tight_layout()
     plt.show()
     fig.savefig("dices.pdf", facecolor="black")
     plt.close()
 
 
-drawDices()
+draw_dices()

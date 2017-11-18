@@ -38,11 +38,8 @@ dicesToRead = [
     '11', '12', '13', '14'
 ]
 
-# dicesToRead = [
-#     '18', '13'
-# ]
 dicesToRead = [
-    '06'
+    '07'
 ]
 
 params_for_dices = [
@@ -166,8 +163,8 @@ def parse_image(img):
         filtered = [x for x in dices if x['rarea'] > image_area * 0.005]
         filtered = remove_with_single_color(filtered, img)
         sort_by_key(filtered, 'rarea')
-        filtered = remove_outliers_on_field(filtered, 'width', 1.6)
-        filtered = remove_outliers_on_field(filtered, 'height', 1.6)
+        filtered = remove_outliers_on_field(filtered, 'width', 1.6, False)
+        filtered = remove_outliers_on_field(filtered, 'height', 1.6, False)
         total_length = len(filtered)
         if total_length > 0:
             dices = filter_dices_candidates(filtered)
@@ -331,24 +328,32 @@ def filter_dots(filtered, dice):
     filtered = remove_in_corners(filtered, dice)
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = remove_overlaped(filtered)
-    filtered = remove_outliers_on_field(filtered, 'fill')
-    filtered = remove_smaller_than_half_of_the_biggest(filtered)
+    filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.1), ('area', 1.15)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
 
 
-def remove_outliers_on_field(filtered, field_name, accept_ratio=1.2):
+def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=True, percent=0.25):
     if len(filtered) == 0:
         return []
-    filings = get_by_field_name(filtered, field_name)
-    comparing_idx = int(len(filings) * 0.25)
-    to_compare = filings[comparing_idx]
-    dif = to_compare * (accept_ratio - 1)
-    return [f for f in filtered if to_compare + dif >= f[field_name] >= to_compare - dif]
+
+    if type(fields) is str and accept_ratio is not None:
+        fields = [(fields, accept_ratio)]
+    indexes = []
+    for (field_name, ration) in fields:
+        field_values = get_by_field_name(filtered, field_name)
+        if should_sort:
+            field_values.sort(reverse=True)
+        comparing_idx = int(len(field_values) * percent)
+        to_compare = field_values[comparing_idx]
+        dif = to_compare * (ration - 1)
+        indexes.extend([i for (i, f) in enumerate(filtered) if to_compare + dif >= f[field_name] >= to_compare - dif])
+    indexes = list(set(indexes))
+    return [filtered[i] for i in indexes]
 
 
 def remove_too_small_and_too_big(filtered, dice):
-    return [x for x in filtered if dice['rarea'] / 6 >= x['rarea'] >= dice['rarea'] * 0.01]
+    return [x for x in filtered if dice['rarea'] / 10 >= x['rarea'] >= dice['rarea'] * 0.005]
 
 
 def remove_in_corners(filtered, dice):
@@ -360,7 +365,9 @@ def remove_in_corners(filtered, dice):
         if not ((width_bound > f['minx'] and height_bound > f['miny']) or
                 (width_bound > f['minx'] and dice['height'] - height_bound < f['maxy']) or
                 (dice['width'] - width_bound < f['maxx'] and height_bound > f['miny']) or
-                (dice['width'] - width_bound < f['maxx'] and dice['height'] - height_bound < f['maxy'])):
+                (dice['width'] - width_bound < f['maxx'] and dice['height'] - height_bound < f['maxy']) or
+                f['minx'] <= 1 or f['maxx'] >= dice['width'] - 1 or
+                f['miny'] <= 1 or f['maxy'] >= dice['height'] - 1):
             res.append(f)
     return res
 

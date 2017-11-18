@@ -35,9 +35,7 @@ import cv2
 dicesToRead = [
     '01', '02', '03', '04', '05',
     '06', '07', '08', '09', '10',
-    '11', '12', '13', '14', '15',
-    '16', '17', '18', '19', '20',
-    '21'
+    '11', '12', '13', '14'
 ]
 
 # dicesToRead = [
@@ -165,14 +163,11 @@ def parse_image(img):
     fig, ax = plt.subplots(figsize=(10, 6))
     if len(dices) > 0:
         image_area = len(img) * len(img[0])
-        firstOk = dices[0]
-
-        # filtered = [x for x in dices if
-        #             x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
         filtered = [x for x in dices if x['rarea'] > image_area * 0.005]
-        sort_by_key(filtered, 'rarea')
-        filtered = remove_outliers_on_field(filtered, 'rarea', 1.5)
         filtered = remove_with_single_color(filtered, img)
+        sort_by_key(filtered, 'rarea')
+        filtered = remove_outliers_on_field(filtered, 'width', 1.6)
+        filtered = remove_outliers_on_field(filtered, 'height', 1.6)
         total_length = len(filtered)
         if total_length > 0:
             dices = filter_dices_candidates(filtered)

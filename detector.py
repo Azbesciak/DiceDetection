@@ -41,9 +41,9 @@ dicesToRead = [
 # dicesToRead = [
 #     '18', '13'
 # ]
-# dicesToRead = [
-#     '09'
-# ]
+dicesToRead = [
+    '06'
+]
 
 params_for_dices = [
     {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
@@ -198,19 +198,16 @@ def is_multi_color(img):
 
 
 def filter_dices_candidates(candidates):
-    to_remove = []
+    res = []
     for c1 in candidates:
-        should_remove = False
+        should_add = True
         for c2 in candidates:
             if has_lower_real_area(c1, c2) and has_common_field(c1, c2):
                 extend_dice_area(c2, c1)
-                should_remove = True
-        if should_remove:
-            to_remove.append(c1)
-
-    for r in to_remove:
-        candidates.remove(r)
-    return candidates
+                should_add = False
+        if should_add:
+            res.append(c1)
+    return res
 
 
 def has_common_field(f1, f2):
@@ -327,16 +324,16 @@ def get_img_fragment(cords, org_img):
     return org_img[cords['miny']:cords['maxy'], cords['minx']:cords['maxx']]
 
 
-def filter_dots(valid_regions, dice):
+def filter_dots(filtered, dice):
     ratio = 1.4
-    filtered = get_rectangles_with_dim(valid_regions, ratio)
+    filtered = get_rectangles_with_dim(filtered, ratio)
     filtered = remove_too_small_and_too_big(filtered, dice)
     filtered = remove_in_corners(filtered, dice)
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = remove_overlaped(filtered)
     filtered = remove_outliers_on_field(filtered, 'fill')
     filtered = remove_smaller_than_half_of_the_biggest(filtered)
-    # filtered = remove_the_farthest_if_more_than_six(filtered)
+    filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
 
 
@@ -361,9 +358,9 @@ def remove_in_corners(filtered, dice):
     height_bound = dice['height'] * bound_lim
     for f in filtered:
         if not ((width_bound > f['minx'] and height_bound > f['miny']) or
-                    (width_bound > f['minx'] and dice['height'] - height_bound < f['maxy']) or
-                    (dice['width'] - width_bound < f['maxx'] and height_bound > f['miny']) or
-                    (dice['width'] - width_bound < f['maxx'] and dice['height'] - height_bound < f['maxy'])):
+                (width_bound > f['minx'] and dice['height'] - height_bound < f['maxy']) or
+                (dice['width'] - width_bound < f['maxx'] and height_bound > f['miny']) or
+                (dice['width'] - width_bound < f['maxx'] and dice['height'] - height_bound < f['maxy'])):
             res.append(f)
     return res
 
@@ -435,7 +432,9 @@ def remove_overlaped(filtered):
 
 
 def has_lower_real_area(smaller, bigger):
-    return smaller != bigger and smaller['rarea'] <= bigger['rarea']
+    return not(smaller['minx'] == bigger['minx'] and smaller['miny'] == bigger['miny'] and
+           smaller['maxx'] == bigger['maxx'] and smaller['maxy'] == bigger['maxy']) and \
+           smaller['rarea'] <= bigger['rarea']
 
 
 def does_include(inner, outer, corners):

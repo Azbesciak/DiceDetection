@@ -314,6 +314,8 @@ def remove_smaller_than_half_of_the_biggest(filtered):
 
 def remove_mistaken_dots(filtered, ratio):
     by_rarea = get_rareas(filtered)
+    if len(by_rarea) < 1:
+        return []
     center_point = np.percentile(by_rarea, 80)
     filtered_first = [f for f in filtered if center_point * 1 / ratio <= f['rarea'] <= center_point * ratio]
     if len(filtered_first) < 0.3 * len(filtered):
@@ -339,10 +341,10 @@ def remove_overlaped(filtered):
             if f1 != f2:
                 if f1['rarea'] < f2['rarea']:
                     if (sum([
-                            f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
-                            f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
-                            f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx'],
-                            f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx']
+                        f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
+                        f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
+                        f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx'],
+                        f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx']
                     ]) >= 2):
                         isOk = False
                         break

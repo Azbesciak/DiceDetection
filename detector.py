@@ -40,11 +40,11 @@ dicesToRead = [
     '21'
 ]
 
-dicesToRead = [
-    '18', '13'
-]
 # dicesToRead = [
-#     '08'
+#     '18', '13'
+# ]
+# dicesToRead = [
+#     '09'
 # ]
 
 params_for_dices = [
@@ -110,7 +110,7 @@ def edges_by_sharp_color(img, p):
 
 
 def edges_with_contours(img, p):
-    pp, pk = np.percentile(img, (p['l'], p['u']));
+    pp, pk = np.percentile(img, (p['l'], p['u']))
     img = exposure.rescale_intensity(img, in_range=(pp, pk))
     img = rgb2gray(img)
     blackWhite = np.zeros([len(img), len(img[0])]) + 1 - img
@@ -164,38 +164,112 @@ def parse_image(img):
 
     fig, ax = plt.subplots(figsize=(10, 6))
     if len(dices) > 0:
+        image_area = len(img) * len(img[0])
         firstOk = dices[0]
+
         # filtered = [x for x in dices if
         #             x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
-        total_length = len(dices)
+        filtered = [x for x in dices if x['rarea'] > image_area * 0.005]
+        sort_by_key(filtered, 'rarea')
+        filtered = remove_outliers_on_field(filtered, 'rarea', 1.5)
+        filtered = remove_with_single_color(filtered, img)
+        total_length = len(filtered)
         if total_length > 0:
+            dices = filter_dices_candidates(filtered)
             dots_on_dices = prepare_dice_to_draw(dices, img)
-            draw_dices(ax, zip(dots_on_dices, dices), img)
+            dices_to_draw = filter_dices_to_draw(zip(dots_on_dices, dices))
+            draw_dices(ax, dices_to_draw, img)
     ax.imshow(img)
 
 
-def prepare_dice_to_draw(filtered, img):
+def remove_with_single_color(candidates, img):
+    filtered = [x for x in candidates if is_multi_color(get_img_fragment(x, img))]
+    return filtered
+
+
+def is_multi_color(img):
+    img_copy = np.copy(img)
+    vals = []
+    ar_range = int(255 / 5) + 1
+    for x in range(len(img_copy)):
+        for y in range(len(img_copy[0])):
+            r = int(img_copy[x][y][0] / ar_range) * ar_range
+            g = int(img_copy[x][y][1] / ar_range) * ar_range
+            b = int(img_copy[x][y][2] / ar_range) * ar_range
+            img_copy[x][y] = [r, g, b]
+            vals.append((r, g, b))
+    unique_vals = len(set(vals))
+    return not exposure.is_low_contrast(img_copy) and unique_vals > 10
+
+
+def filter_dices_candidates(candidates):
+    to_remove = []
+    for c1 in candidates:
+        should_remove = False
+        for c2 in candidates:
+            if has_lower_real_area(c1, c2) and has_common_field(c1, c2):
+                extend_dice_area(c2, c1)
+                should_remove = True
+        if should_remove:
+            to_remove.append(c1)
+
+    for r in to_remove:
+        candidates.remove(r)
+    return candidates
+
+
+def has_common_field(f1, f2):
+    min_x = max(0, min(f1['maxx'], f2['maxx']) - max(f1['minx'], f2['minx']))
+    min_y = max(0, min(f1['maxy'], f2['maxy']) - max(f1['miny'], f2['miny']))
+    common_part = min_x * min_y
+    minimum_real_area = min(f1['rarea'], f2['rarea'])
+    return common_part >= minimum_real_area * 0.25
+
+
+def extend_dice_area(extended, consumed):
+    extended['minx'] = min(extended['minx'], consumed['minx'])
+    extended['maxx'] = max(extended['maxx'], consumed['maxx'])
+    extended['miny'] = min(extended['miny'], consumed['miny'])
+    extended['maxy'] = max(extended['maxy'], consumed['maxy'])
+    extended['height'] = extended['maxy'] - extended['miny']
+    extended['width'] = extended['maxx'] - extended['minx']
+    extended['rarea'] = extended['width'] * extended['height']
+    extended['rect'].set_x(extended['minx'])
+    extended['rect'].set_y(extended['miny'])
+    extended['rect'].set_width(extended['width'])
+    extended['rect'].set_height(extended['height'])
+
+
+def filter_dices_to_draw(candidates):
+    candidates = [(dts, dcs) for (dts, dcs) in candidates if len(dts) > 0]
+    return candidates
+
+
+def prepare_dice_to_draw(dices_region, img):
     dots = []
-    for f in filtered:
-        dots_on_dice = find_on_dice(img, f)
+    for dice_reg in dices_region:
+        dots_on_dice = find_on_dice(img, dice_reg)
         for dot in dots_on_dice:
-            new_x = dot['rect'].get_x() + f['minx']
-            new_y = dot['rect'].get_y() + f['miny']
-            dot['rect'].set_xy((new_x, new_y))
+            move_rectangle(dot, dice_reg)
         dots.append(dots_on_dice)
     return dots
+
+
+def move_rectangle(container, cords):
+    new_x = container['rect'].get_x() + cords['minx']
+    new_y = container['rect'].get_y() + cords['miny']
+    container['rect'].set_xy((new_x, new_y))
 
 
 def draw_dices(ax, dices, img):
     for (dots, dice) in dices:
         dots_amount = len(dots)
-        if dots_amount > 0 or True:
-            for dot in dots:
-                ax.add_patch(dot['rect'])
-            size = len(img) / 250
-            cv2.putText(img, str(dots_amount), (dice['minx'], dice['miny']), 2, fontScale=size,  # 3
-                        color=(0, 140, 150), thickness=max(int(size), 2))
-            ax.add_patch(dice['rect'])
+        for dot in dots:
+            ax.add_patch(dot['rect'])
+        size = len(img) / 250
+        cv2.putText(img, str(dots_amount), (dice['minx'], dice['miny']), 2, fontScale=size,  # 3
+                    color=(0, 140, 150), thickness=max(int(size), 2))
+        ax.add_patch(dice['rect'])
 
 
 def filter_dices(regions):
@@ -241,29 +315,48 @@ def get_regions_from_dice(dice_img, par):
 
 
 def find_on_dice(org_img, dice):
-    dice_img_copy = org_img[dice['miny']:dice['maxy'], dice['minx']:dice['maxx']]
+    dice_img_copy = get_img_fragment(dice, org_img)
     regions = get_regions_from_dice(dice_img_copy, params_for_dotes)
 
     valid_regions = []
     img_size = len(dice_img_copy) * len(dice_img_copy[0])
     for region in regions:
         validate_region(region, valid_regions, lambda rect: img_size * .005 <= rect['rarea'] <= img_size * .15)
+
+    if len(valid_regions) > 0:
+        return filter_dots(valid_regions, dice)
+    return []
+
+
+def get_img_fragment(cords, org_img):
+    return org_img[cords['miny']:cords['maxy'], cords['minx']:cords['maxx']]
+
+
+def filter_dots(valid_regions, dice):
     ratio = 1.4
     filtered = get_rectangles_with_dim(valid_regions, ratio)
-
-    if len(filtered) > 0:
-        filtered = filter_dots(filtered, ratio, dice)
-
-    return filtered
-
-
-def filter_dots(filtered, ratio, dice):
+    filtered = remove_too_small_and_too_big(filtered, dice)
     filtered = remove_in_corners(filtered, dice)
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = remove_overlaped(filtered)
+    filtered = remove_outliers_on_field(filtered, 'fill')
     filtered = remove_smaller_than_half_of_the_biggest(filtered)
-    filtered = remove_the_farthest_if_more_than_six(filtered)
+    # filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
+
+
+def remove_outliers_on_field(filtered, field_name, accept_ratio=1.2):
+    if len(filtered) == 0:
+        return []
+    filings = get_by_field_name(filtered, field_name)
+    comparing_idx = int(len(filings) * 0.25)
+    to_compare = filings[comparing_idx]
+    dif = to_compare * (accept_ratio - 1)
+    return [f for f in filtered if to_compare + dif >= f[field_name] >= to_compare - dif]
+
+
+def remove_too_small_and_too_big(filtered, dice):
+    return [x for x in filtered if dice['rarea'] / 6 >= x['rarea'] >= dice['rarea'] * 0.01]
 
 
 def remove_in_corners(filtered, dice):
@@ -273,9 +366,9 @@ def remove_in_corners(filtered, dice):
     height_bound = dice['height'] * bound_lim
     for f in filtered:
         if not ((width_bound > f['minx'] and height_bound > f['miny']) or
-                (width_bound > f['minx'] and dice['height'] - height_bound < f['maxy']) or
-                (dice['width'] - width_bound < f['maxx'] and height_bound > f['miny']) or
-                (dice['width'] - width_bound < f['maxx'] and dice['height'] - height_bound < f['maxy'])):
+                    (width_bound > f['minx'] and dice['height'] - height_bound < f['maxy']) or
+                    (dice['width'] - width_bound < f['maxx'] and height_bound > f['miny']) or
+                    (dice['width'] - width_bound < f['maxx'] and dice['height'] - height_bound < f['maxy'])):
             res.append(f)
     return res
 
@@ -304,7 +397,7 @@ def get_distance_between(f1, f2):
 
 
 def remove_smaller_than_half_of_the_biggest(filtered):
-    rareas = get_rareas(filtered)
+    rareas = get_by_field_name(filtered, 'rarea')
     if len(rareas) < 1:
         return []
     max_area = max(rareas)
@@ -313,7 +406,7 @@ def remove_smaller_than_half_of_the_biggest(filtered):
 
 
 def remove_mistaken_dots(filtered, ratio):
-    by_rarea = get_rareas(filtered)
+    by_rarea = get_by_field_name(filtered, 'rarea')
     if len(by_rarea) < 1:
         return []
     center_point = np.percentile(by_rarea, 80)
@@ -329,8 +422,8 @@ def remove_mistaken_dots(filtered, ratio):
     return filtered
 
 
-def get_rareas(filtered):
-    return [f['rarea'] for f in filtered]
+def get_by_field_name(filtered, field_name):
+    return [f[field_name] for f in filtered]
 
 
 def remove_overlaped(filtered):
@@ -338,19 +431,25 @@ def remove_overlaped(filtered):
     for f1 in filtered:
         isOk = True
         for f2 in filtered:
-            if f1 != f2:
-                if f1['rarea'] < f2['rarea']:
-                    if (sum([
-                        f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
-                        f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['minx'] <= f2['maxx'],
-                        f2['miny'] <= f1['miny'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx'],
-                        f2['miny'] <= f1['maxy'] <= f2['maxy'] and f2['minx'] <= f1['maxx'] <= f2['maxx']
-                    ]) >= 2):
-                        isOk = False
-                        break
+            if has_lower_real_area(f1, f2) and does_include(f1, f2, 2):
+                isOk = False
+                break
         if isOk:
             res.append(f1)
     return res
+
+
+def has_lower_real_area(smaller, bigger):
+    return smaller != bigger and smaller['rarea'] <= bigger['rarea']
+
+
+def does_include(inner, outer, corners):
+    return sum([
+        outer['miny'] <= inner['miny'] <= outer['maxy'] and outer['minx'] <= inner['minx'] <= outer['maxx'],
+        outer['miny'] <= inner['maxy'] <= outer['maxy'] and outer['minx'] <= inner['minx'] <= outer['maxx'],
+        outer['miny'] <= inner['miny'] <= outer['maxy'] and outer['minx'] <= inner['maxx'] <= outer['maxx'],
+        outer['miny'] <= inner['maxy'] <= outer['maxy'] and outer['minx'] <= inner['maxx'] <= outer['maxx']
+    ]) >= corners
 
 
 def look_for_dices_on_image():

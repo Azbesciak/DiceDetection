@@ -40,9 +40,9 @@ dicesToRead = [
     '21'
 ]
 
-# dicesToRead = [
-#     '18', '13'
-# ]
+dicesToRead = [
+    '18', '13'
+]
 # dicesToRead = [
 #     '08'
 # ]
@@ -160,33 +160,42 @@ def look_for_dices(img, params):
 
 
 def parse_image(img):
-    filtered_dices = try_to_find_dices(img)
+    dices = try_to_find_dices(img)
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    if len(filtered_dices) > 0:
-        firstOk = filtered_dices[0]
-        filtered = [x for x in filtered_dices if
-                    x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
-        total_length = len(filtered)
+    if len(dices) > 0:
+        firstOk = dices[0]
+        # filtered = [x for x in dices if
+        #             x['height'] >= firstOk['height'] / 2 and x['width'] >= firstOk['width'] / 2]
+        total_length = len(dices)
         if total_length > 0:
-            draw_dice(ax, filtered, img)
+            dots_on_dices = prepare_dice_to_draw(dices, img)
+            draw_dices(ax, zip(dots_on_dices, dices), img)
     ax.imshow(img)
 
 
-def draw_dice(ax, filtered, img):
+def prepare_dice_to_draw(filtered, img):
+    dots = []
     for f in filtered:
         dots_on_dice = find_on_dice(img, f)
         for dot in dots_on_dice:
             new_x = dot['rect'].get_x() + f['minx']
             new_y = dot['rect'].get_y() + f['miny']
             dot['rect'].set_xy((new_x, new_y))
-            ax.add_patch(dot['rect'])
-        dots_amount = len(dots_on_dice)
-        if dots_amount > 0:
+        dots.append(dots_on_dice)
+    return dots
+
+
+def draw_dices(ax, dices, img):
+    for (dots, dice) in dices:
+        dots_amount = len(dots)
+        if dots_amount > 0 or True:
+            for dot in dots:
+                ax.add_patch(dot['rect'])
             size = len(img) / 250
-            cv2.putText(img, str(dots_amount), (f['minx'], f['miny']), 2, fontScale=size,  # 3
+            cv2.putText(img, str(dots_amount), (dice['minx'], dice['miny']), 2, fontScale=size,  # 3
                         color=(0, 140, 150), thickness=max(int(size), 2))
-            ax.add_patch(f['rect'])
+            ax.add_patch(dice['rect'])
 
 
 def filter_dices(regions):
@@ -342,7 +351,7 @@ def remove_overlaped(filtered):
     return res
 
 
-def draw_dices():
+def look_for_dices_on_image():
     fig = plt.figure(facecolor="black", figsize=(60, 60))
     for i, image in enumerate(dices):
         try:
@@ -356,4 +365,4 @@ def draw_dices():
     plt.close()
 
 
-draw_dices()
+look_for_dices_on_image()

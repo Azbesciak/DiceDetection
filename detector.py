@@ -35,17 +35,22 @@ import cv2
 dicesToRead = [
     '01', '02', '03', '04', '05',
     '06', '07', '08', '09', '10',
-    '11', '12', '13', '14'
+    '11', '12', '13', '14', '15'
 ]
 
 dicesToRead = [
-   '10'#'15', ,
+   # '02',
+   #  '07',
+   #  '14'
+   #  '02'
+    '08'
 ]
 
 params_for_dices = [
     {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
     {'sig': 4, 'low': 0.05, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
     {'tresh': 0.8, 'edgeFunc': lambda img, p: get_by_hsv_value(img, p)},
+    {'edgeFunc': lambda img, p: splashing_image(img, p)},
 ]
 
 params_for_dotes = [
@@ -104,6 +109,20 @@ def just_canny_and_dilation(img, p):
     return img
 
 
+def splashing_image(img, p):
+    temp = 0 - img
+    temp = rgb2gray(temp)
+    temp = (temp * 2) ** 0.5 / 2
+    temp = ski.morphology.erosion(temp, square(10))
+    temp = 1 - temp
+    temp = filters.median(temp, square(25))
+    thresh = threshold_otsu(temp)
+    temp[temp <= thresh] = 0
+    temp[temp > thresh] = 1
+    temp = filters.median(temp, square(50))
+    return temp
+
+
 def get_rectangles_with_dim(rectangles, dim_upper):
     values = [x for x in rectangles if dim_upper >= x["width"] / x["height"] >= 1 / dim_upper]
     sort_by_key(values, 'rarea')
@@ -137,19 +156,32 @@ def parse_image(img):
     min_coverage = .0025
     fig, ax = plt.subplots(figsize=(10, 6))
     if len(dices) > 0:
-        image_area = len(img) * len(img[0])
+        width, height = len(img), len(img[0])
+        image_area = width * height
         filtered = [x for x in dices if x['rarea'] > image_area * min_coverage]
         filtered = remove_with_single_color(filtered, img)
         sort_by_key(filtered, 'rarea')
         filtered = remove_outliers_on_field(filtered, 'width', 1.6, False)
         filtered = remove_outliers_on_field(filtered, 'height', 1.6, False)
+        filtered = remove_outliers_on_field(filtered, 'rarea', 1.8, False)
         total_length = len(filtered)
         if total_length > 0:
-            dices = filter_dices_candidates(filtered)
+            dices = concat_if_condition_met(filtered, lambda c1, c2: is_overlaped_by(c1, c2))
             dots_on_dices = prepare_dice_to_draw(dices, img)
             dices_to_draw = filter_dices_to_draw(zip(dots_on_dices, dices))
             draw_dices(ax, dices_to_draw, img)
     ax.imshow(img)
+
+
+def is_overlaped_by(c1, c2):
+    return has_lower_real_area(c1, c2) and has_common_field(c1, c2, 0.25)
+
+
+def is_the_same(c1, c2, accept=0):
+    return (c1['minx'] - accept <= c2['minx'] <= c1['minx'] + accept and
+            c1['miny'] - accept <= c2['miny'] <= c1['miny'] + accept and
+            c1['maxx'] - accept <= c2['maxx'] <= c1['maxx'] + accept and
+            c1['maxy'] - accept <= c2['maxy'] <= c1['maxy'] + accept)
 
 
 def remove_with_single_color(candidates, img):
@@ -172,12 +204,12 @@ def is_multi_color(img):
     return not exposure.is_low_contrast(img_copy) and unique_vals > 10
 
 
-def filter_dices_candidates(candidates):
+def concat_if_condition_met(candidates, condition):
     res = []
     for c1 in candidates:
         should_add = True
         for c2 in candidates:
-            if has_lower_real_area(c1, c2) and has_common_field(c1, c2):
+            if condition(c1, c2):
                 extend_dice_area(c2, c1)
                 should_add = False
         if should_add:
@@ -185,12 +217,12 @@ def filter_dices_candidates(candidates):
     return res
 
 
-def has_common_field(f1, f2):
+def has_common_field(f1, f2, field_ratio):
     min_x = max(0, min(f1['maxx'], f2['maxx']) - max(f1['minx'], f2['minx']))
     min_y = max(0, min(f1['maxy'], f2['maxy']) - max(f1['miny'], f2['miny']))
     common_part = min_x * min_y
     minimum_real_area = min(f1['rarea'], f2['rarea'])
-    return common_part >= minimum_real_area * 0.25
+    return common_part >= minimum_real_area * field_ratio
 
 
 def extend_dice_area(extended, consumed):
@@ -382,7 +414,8 @@ def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=Tr
         comparing_idx = int(len(field_values) * percent)
         to_compare = field_values[comparing_idx]
         dif = to_compare * (ration - 1)
-        indexes.extend([i for (i, f) in enumerate(filtered) if to_compare + dif >= f[field_name] >= to_compare - dif])
+        indexes.extend([i for (i, f) in enumerate(filtered)
+                        if to_compare + dif >= f[field_name] >= to_compare - dif])
     indexes = list(set(indexes))
     return [filtered[i] for i in indexes]
 
@@ -474,8 +507,7 @@ def remove_overlaped(filtered):
 
 
 def has_lower_real_area(smaller, bigger):
-    return not(smaller['minx'] == bigger['minx'] and smaller['miny'] == bigger['miny'] and
-           smaller['maxx'] == bigger['maxx'] and smaller['maxy'] == bigger['maxy']) and \
+    return not(is_the_same(smaller, bigger)) and \
            smaller['rarea'] <= bigger['rarea']
 
 

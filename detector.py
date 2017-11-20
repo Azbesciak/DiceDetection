@@ -39,12 +39,14 @@ dicesToRead = [
 ]
 
 dicesToRead = [
-    '07'
+   '10'#'15', ,
 ]
 
 params_for_dices = [
     {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
     {'sig': 4, 'low': 0.05, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
+    # {'edgeFunc': lambda img, p: test(img, p)},
+    {'tresh': 0.8, 'edgeFunc': lambda img, p: get_by_hsv_value(img, p)},
     # {'l': 0.6, 'u': 15.4, 'tresh': 0.1, 'edgeFunc': lambda img, p: simple_gray(img, p)},
     # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)},
     # {'low': 0.05, 'high': 0.3, 'sig': 3, 'edgeFunc': lambda img, p: edges_by_sharp_color(img, p)},
@@ -56,11 +58,12 @@ params_for_dotes = [
     {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)}
 ]
 
+
 dices = [io.imread('./dices/dice{0}.jpg'.format(i)) for i in dicesToRead]
 
 
 def drawDiceImage(i, img):
-    plt.subplot(2, 3, i)
+    plt.subplot(1, 2, i)
     plt.imshow(img)
 
 
@@ -69,6 +72,46 @@ def drawDiceImageAligned(total, i, img):
     ax = plt.subplot(in_row, int(total / in_row), i)
     plt.imshow(img)
     return ax
+
+def dshow(img1, img2):
+    drawDiceImage(1, img1)
+    drawDiceImage(2, img2)
+    plt.show()
+
+
+def test(img, p):
+    temp = rgb2gray(img)
+    temp = temp ** 2
+    temp = filters.gaussian(temp)
+    temp = exposure.equalize_hist(temp)
+    temp = filters.sobel(temp)
+    temp = filters.median(temp)
+    temp = ski.morphology.dilation(temp)
+    temp = temp / 255
+    temp[temp < 0.15] = 0
+    temp[temp >= 0.15] = 1
+    temp = filters.gaussian(temp)
+    temp = ski.morphology.closing(temp, square(4))
+    temp = ski.morphology.erosion(temp, square(1))
+    temp = ski.morphology.erosion(temp)
+    temp = ski.morphology.erosion(temp)
+    temp[temp >= 0.15] = 1
+    temp[temp < 0.15] = 0
+    temp = filters.median(temp)
+    # dshow(img, temp)
+    return temp
+
+
+def get_by_hsv_value(img, p):
+    temp = rgb2hsv(img)
+    temp[temp[:, :, 2] > p['tresh']] = 1
+    temp[temp[:, :, 2] <= p['tresh']] = 0
+    temp = rgb2gray(temp)
+    temp = ski.morphology.erosion(temp, square(2))
+    temp = ski.morphology.erosion(temp, square(3))
+    temp = ski.morphology.opening(temp)
+    return temp
+
 
 
 def get_edges(img, p):
@@ -156,11 +199,11 @@ def look_for_dices(img, params):
 
 def parse_image(img):
     dices = try_to_find_dices(img)
-
+    min_coverage = .0025
     fig, ax = plt.subplots(figsize=(10, 6))
     if len(dices) > 0:
         image_area = len(img) * len(img[0])
-        filtered = [x for x in dices if x['rarea'] > image_area * 0.005]
+        filtered = [x for x in dices if x['rarea'] > image_area * min_coverage]
         filtered = remove_with_single_color(filtered, img)
         sort_by_key(filtered, 'rarea')
         filtered = remove_outliers_on_field(filtered, 'width', 1.6, False)
@@ -313,7 +356,7 @@ def find_on_dice(org_img, dice):
         validate_region(region, valid_regions, lambda rect: img_size * .005 <= rect['rarea'] <= img_size * .15)
 
     if len(valid_regions) > 0:
-        return filter_dots(valid_regions, dice)
+        return filter_dots(valid_regions, dice, dice_img_copy)
     return []
 
 
@@ -321,16 +364,73 @@ def get_img_fragment(cords, org_img):
     return org_img[cords['miny']:cords['maxy'], cords['minx']:cords['maxx']]
 
 
-def filter_dots(filtered, dice):
+def filter_dots(filtered, dice, img):
     ratio = 1.4
     filtered = get_rectangles_with_dim(filtered, ratio)
     filtered = remove_too_small_and_too_big(filtered, dice)
     filtered = remove_in_corners(filtered, dice)
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = remove_overlaped(filtered)
+    filtered = remove_overlaped(filtered)
+    # filtered = look_for_dots_on_img(filtered, img)
     filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.1), ('area', 1.15)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
+
+
+def look_for_dots_on_img(filtered, img):
+    res = []
+    for f in filtered:
+        scalar = 0.1
+        width_bound = int(f['width'] * scalar)
+        height_bound = int(f['height'] * scalar)
+        cor = {
+            'minx': max(0, f['minx'] - width_bound),
+            'maxx': min(len(img[0]) - 1, f['maxx'] + width_bound),
+            'miny': max(0, f['miny'] - height_bound),
+            'maxy': min(len(img) - 1, f['maxy'] + height_bound),
+        }
+        min_dim = int(min(cor['maxx'] - cor['minx'], cor['maxy'] - cor['miny']) / 2)
+        if min_dim > 0:
+
+            fragment = get_img_fragment(cor, img)
+            edges = rgb2gray(fragment)
+            edges = ski.exposure.rescale_intensity(edges)
+
+            edges[edges >= 0.3] = 1
+            edges[edges < 0.3] = 0
+            edges = ski.morphology.dilation(edges)
+            if is_filled_circle(edges):
+                res.append(f)
+    return res
+
+
+def is_filled_circle(zero_one_img):
+    max_x = len(zero_one_img) - 1
+    max_y = len(zero_one_img[0]) - 1
+    cx = int(max_x / 2)
+    cy = int(max_y / 2)
+    r = int(min(cx, cy) * 0.5)
+    inside = []
+    outside = []
+    for x in range(0, max_x + 1):
+        for y in range(0, max_y + 1):
+            current_r = sqrt((cx - x) ** 2 + (cy - y) ** 2)
+            if current_r <= r:
+                inside.append(zero_one_img[x][y])
+            elif current_r >= r*2:
+                outside.append(zero_one_img[x][y])
+
+    accept_range = 0.1
+    if len(inside) == 0:
+        return False
+    inside_color = sum(inside)/len(inside)
+    outside_color = 1 - inside_color
+    if len(outside) > 0:
+        outside_color = sum(outside)/len(outside)
+
+    return ((1 - accept_range <= inside_color and outside_color <= accept_range) or
+            (1 - accept_range <= outside_color and inside_color <= accept_range))
 
 
 def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=True, percent=0.25):
@@ -454,7 +554,6 @@ def does_include(inner, outer, corners):
 
 
 def look_for_dices_on_image():
-    fig = plt.figure(facecolor="black", figsize=(60, 60))
     for i, image in enumerate(dices):
         try:
             parse_image(image)
@@ -463,7 +562,6 @@ def look_for_dices_on_image():
             traceback.print_exc()
     plt.tight_layout()
     plt.show()
-    fig.savefig("dices.pdf", facecolor="black")
     plt.close()
 
 

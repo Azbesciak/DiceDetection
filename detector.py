@@ -45,12 +45,7 @@ dicesToRead = [
 params_for_dices = [
     {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
     {'sig': 4, 'low': 0.05, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
-    # {'edgeFunc': lambda img, p: test(img, p)},
     {'tresh': 0.8, 'edgeFunc': lambda img, p: get_by_hsv_value(img, p)},
-    # {'l': 0.6, 'u': 15.4, 'tresh': 0.1, 'edgeFunc': lambda img, p: simple_gray(img, p)},
-    # {'gamma': 0.5, 'sig': 1.4, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)},
-    # {'low': 0.05, 'high': 0.3, 'sig': 3, 'edgeFunc': lambda img, p: edges_by_sharp_color(img, p)},
-    # {'l': 0.6, 'u': 15.4, 'tresh': 0.4, 'lev': 0.19, 'edgeFunc': lambda img, p: edges_with_contours(img, p)}
 ]
 
 params_for_dotes = [
@@ -62,56 +57,33 @@ params_for_dotes = [
 dices = [io.imread('./dices/dice{0}.jpg'.format(i)) for i in dicesToRead]
 
 
-def drawDiceImage(i, img):
+def draw_dice_image(i, img):
     plt.subplot(1, 2, i)
     plt.imshow(img)
 
 
-def drawDiceImageAligned(total, i, img):
+def draw_dice_image_aligned(total, i, img):
     in_row = int(total / 3) + 1
     ax = plt.subplot(in_row, int(total / in_row), i)
     plt.imshow(img)
     return ax
 
-def dshow(img1, img2):
-    drawDiceImage(1, img1)
-    drawDiceImage(2, img2)
+
+def debug_show(img1, img2):
+    draw_dice_image(1, img1)
+    draw_dice_image(2, img2)
     plt.show()
 
 
-def test(img, p):
-    temp = rgb2gray(img)
-    temp = temp ** 2
-    temp = filters.gaussian(temp)
-    temp = exposure.equalize_hist(temp)
-    temp = filters.sobel(temp)
-    temp = filters.median(temp)
-    temp = ski.morphology.dilation(temp)
-    temp = temp / 255
-    temp[temp < 0.15] = 0
-    temp[temp >= 0.15] = 1
-    temp = filters.gaussian(temp)
-    temp = ski.morphology.closing(temp, square(4))
-    temp = ski.morphology.erosion(temp, square(1))
-    temp = ski.morphology.erosion(temp)
-    temp = ski.morphology.erosion(temp)
-    temp[temp >= 0.15] = 1
-    temp[temp < 0.15] = 0
-    temp = filters.median(temp)
-    # dshow(img, temp)
-    return temp
-
-
 def get_by_hsv_value(img, p):
-    temp = rgb2hsv(img)
-    temp[temp[:, :, 2] > p['tresh']] = 1
-    temp[temp[:, :, 2] <= p['tresh']] = 0
-    temp = rgb2gray(temp)
-    temp = ski.morphology.erosion(temp, square(2))
-    temp = ski.morphology.erosion(temp, square(3))
-    temp = ski.morphology.opening(temp)
-    return temp
-
+    img = rgb2hsv(img)
+    img[img[:, :, 2] > p['tresh']] = 1
+    img[img[:, :, 2] <= p['tresh']] = 0
+    img = rgb2gray(img)
+    img = ski.morphology.erosion(img, square(2))
+    img = ski.morphology.erosion(img, square(3))
+    img = ski.morphology.opening(img)
+    return img
 
 
 def get_edges(img, p):
@@ -121,45 +93,8 @@ def get_edges(img, p):
         img = exposure.rescale_intensity(img, in_range=(pp, pk))
     if 'gamma' in p:
         img = exposure.adjust_gamma(img, p['gamma'])
-        # img = img ** p['gamma']
     img = ski.feature.canny(img, sigma=p['sig'])
     return img
-
-
-def simple_gray(img, p):
-    img = rgb2gray(img)
-    pp, pk = np.percentile(img, (p['l'], p['u']))
-    img = exposure.rescale_intensity(img, in_range=(pp, pk))
-    img = filters.prewitt(img)
-    img[img > p['tresh']] = 1
-    img[img <= p['tresh']] = 0
-    return img
-
-
-def edges_by_sharp_color(img, p):
-    img = rgb2hsv(img)
-    for x in range(len(img)):
-        for y in range(len(img[0])):
-            img[x][y] = [img[x][y][0], 1, 1]
-    img = hsv2rgb(img)
-    img = rgb2gray(img)
-    img = ski.feature.canny(img, sigma=p['sig'], low_threshold=p['low'], high_threshold=p['high'])
-    return img
-
-
-def edges_with_contours(img, p):
-    pp, pk = np.percentile(img, (p['l'], p['u']))
-    img = exposure.rescale_intensity(img, in_range=(pp, pk))
-    img = rgb2gray(img)
-    blackWhite = np.zeros([len(img), len(img[0])]) + 1 - img
-    contours = measure.find_contours(blackWhite, p['lev'])
-    for contours in contours:
-        for con in contours:
-            blackWhite[int(con[0])][int(con[1])] = 1
-
-    blackWhite[blackWhite < p['tresh']] = 0
-    blackWhite[blackWhite >= p['tresh']] = 1
-    return blackWhite
 
 
 def just_canny_and_dilation(img, p):

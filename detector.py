@@ -41,9 +41,9 @@ dicesToRead = [
 dicesToRead = [
    # '02',
    #  '07',
-   #  '14'
-   #  '02'
-    '08'
+    '14',
+    # '02'
+    # '08'
 ]
 
 params_for_dices = [
@@ -55,7 +55,9 @@ params_for_dices = [
 
 params_for_dotes = [
     {'sig': 0.4, 'low': 0.1, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
-    {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)}
+    {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)},
+    # {'gamma': 4, 'close': 2, 'median': 2, 'sobel': True, 'edgeFunc': lambda img, p: dots_filter(img, p)},
+    # {'gamma': 4, 'close': 2, 'median': 2, 'edgeFunc': lambda img, p: dots_filter(img, p)}
 ]
 
 
@@ -110,17 +112,35 @@ def just_canny_and_dilation(img, p):
 
 
 def splashing_image(img, p):
-    temp = 0 - img
+    temp = -img
     temp = rgb2gray(temp)
     temp = (temp * 2) ** 0.5 / 2
     temp = ski.morphology.erosion(temp, square(10))
     temp = 1 - temp
     temp = filters.median(temp, square(25))
-    thresh = threshold_otsu(temp)
-    temp[temp <= thresh] = 0
-    temp[temp > thresh] = 1
+    temp = apply_threshold(temp)
     temp = filters.median(temp, square(50))
     return temp
+
+
+def dots_filter(img, p):
+    temp = -img
+    temp = rgb2gray(temp)
+    temp = (temp ** p['gamma'])
+    temp = ski.morphology.closing(temp, square(p['close']))
+    temp = apply_threshold(temp)
+    temp = filters.median(temp, square(p['median']))
+    if 'sobel' in p:
+        temp = filters.sobel(temp)
+        temp = apply_threshold(temp)
+    return temp
+
+
+def apply_threshold(img):
+    thresh = threshold_otsu(img)
+    img[img <= thresh] = 0
+    img[img > thresh] = 1
+    return img
 
 
 def get_rectangles_with_dim(rectangles, dim_upper):
@@ -266,7 +286,7 @@ def draw_dices(ax, dices, img):
         for dot in dots:
             ax.add_patch(dot['rect'])
         size = len(img) / 250
-        cv2.putText(img, str(dots_amount), (dice['minx'], dice['miny']), 2, fontScale=size,  # 3
+        cv2.putText(img, str(dots_amount), (dice['minx'], dice['miny']), 2, fontScale=size,
                     color=(0, 140, 150), thickness=max(int(size), 2))
         ax.add_patch(dice['rect'])
 
@@ -307,9 +327,8 @@ def get_regions_from_dice(dice_img, par):
     regions = []
     for p in par:
         img = p['edgeFunc'](dice_img, p)
-        if is_one_value_image(img):
-            return []
-        regions.extend(find_regions(img))
+        if not is_one_value_image(img):
+            regions.extend(find_regions(img))
     return regions
 
 
@@ -337,9 +356,7 @@ def filter_dots(filtered, dice, img):
     filtered = remove_too_small_and_too_big(filtered, dice)
     filtered = remove_in_corners(filtered, dice)
     filtered = remove_mistaken_dots(filtered, ratio)
-    filtered = remove_overlaped(filtered)
-    filtered = remove_overlaped(filtered)
-    # filtered = look_for_dots_on_img(filtered, img)
+    filtered = concat_if_condition_met(filtered, lambda c1, c2: has_lower_real_area(c1, c2) and does_include(c1, c2, 2))
     filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.1), ('area', 1.15)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
@@ -361,13 +378,9 @@ def look_for_dots_on_img(filtered, img):
         if min_dim > 0:
 
             fragment = get_img_fragment(cor, img)
-            edges = rgb2gray(fragment)
-            edges = ski.exposure.rescale_intensity(edges)
+            edges = dots_filter(fragment, {'gamma': 4, 'close': 2, 'median': 2})
 
-            edges[edges >= 0.3] = 1
-            edges[edges < 0.3] = 0
-            edges = ski.morphology.dilation(edges)
-            if is_filled_circle(edges):
+            if is_filled_circle(edges/255):
                 res.append(f)
     return res
 
@@ -377,7 +390,7 @@ def is_filled_circle(zero_one_img):
     max_y = len(zero_one_img[0]) - 1
     cx = int(max_x / 2)
     cy = int(max_y / 2)
-    r = int(min(cx, cy) * 0.5)
+    r = int(min(cx, cy)/3)
     inside = []
     outside = []
     for x in range(0, max_x + 1):
@@ -385,10 +398,9 @@ def is_filled_circle(zero_one_img):
             current_r = sqrt((cx - x) ** 2 + (cy - y) ** 2)
             if current_r <= r:
                 inside.append(zero_one_img[x][y])
-            elif current_r >= r*2:
+            elif current_r >= r*4:
                 outside.append(zero_one_img[x][y])
 
-    accept_range = 0.1
     if len(inside) == 0:
         return False
     inside_color = sum(inside)/len(inside)
@@ -396,8 +408,8 @@ def is_filled_circle(zero_one_img):
     if len(outside) > 0:
         outside_color = sum(outside)/len(outside)
 
-    return ((1 - accept_range <= inside_color and outside_color <= accept_range) or
-            (1 - accept_range <= outside_color and inside_color <= accept_range))
+    return ((0.9 <= inside_color and outside_color <= 0.4) or
+            (0.9 <= outside_color and inside_color <= 0.4))
 
 
 def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=True, percent=0.25):
@@ -495,9 +507,9 @@ def get_by_field_name(filtered, field_name):
 
 def remove_overlaped(filtered):
     res = []
-    for f1 in filtered:
+    for i1, f1 in enumerate(filtered):
         isOk = True
-        for f2 in filtered:
+        for i2, f2 in enumerate(filtered[i1:]):
             if has_lower_real_area(f1, f2) and does_include(f1, f2, 2):
                 isOk = False
                 break
@@ -507,8 +519,11 @@ def remove_overlaped(filtered):
 
 
 def has_lower_real_area(smaller, bigger):
-    return not(is_the_same(smaller, bigger)) and \
-           smaller['rarea'] <= bigger['rarea']
+    return not(is_the_same(smaller, bigger)) and is_smaller(smaller, bigger)
+
+
+def is_smaller(smaller, bigger):
+    return smaller['rarea'] <= bigger['rarea']
 
 
 def does_include(inner, outer, corners):

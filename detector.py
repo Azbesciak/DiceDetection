@@ -35,22 +35,28 @@ import cv2
 dicesToRead = [
     '01', '02', '03', '04', '05',
     '06', '07', '08', '09', '10',
-    '11', '12', '13', '14', '15'
+    '11', '12', '13', '14', '15',
+    '16','17'
 ]
 
-dicesToRead = [
-   # '02',
-   #  '07',
-    '14',
+# dicesToRead = [
+   # '17',
+   # '11',
+   #  '01',
+   #  '14',
     # '02'
-    # '08'
-]
+    # '08',
+    # '16',
+    # '07'
+# ]
 
 params_for_dices = [
     {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
     {'sig': 4, 'low': 0.05, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
     {'tresh': 0.8, 'edgeFunc': lambda img, p: get_by_hsv_value(img, p)},
     {'edgeFunc': lambda img, p: splashing_image(img, p)},
+    {'gamma': 5, 'tresh': 0.05, 'edgeFunc': lambda img, p: sobel_and_scharr_connected(img, p)},
+    {'l': 10, 'u': 90, 'edgeFunc': lambda img, p: high_percentile_shrink(img, p)}
 ]
 
 params_for_dotes = [
@@ -109,6 +115,29 @@ def just_canny_and_dilation(img, p):
     img = ski.morphology.dilation(img)
     img = ski.feature.canny(img, sigma=p['sig'], low_threshold=p['low'], high_threshold=p['high'])
     return img
+
+
+def high_percentile_shrink(img, p):
+    temp = rgb2gray(img)
+    temp = temp ** 3
+    temp = ski.exposure.equalize_adapthist(temp)
+    if np.average(temp) > 0.5:
+        temp = 1 - temp
+    temp = apply_threshold(temp)
+    return temp
+
+
+def sobel_and_scharr_connected(img, p):
+    temp = img
+    temp = rgb2gray(temp)
+
+    temp = temp ** p['gamma']
+    temp1 = ski.filters.sobel(temp)
+    temp2 = ski.filters.scharr(temp)
+    temp = temp1 + temp2
+    temp[temp > p['tresh']] = 1
+    temp = ski.morphology.dilation(temp)
+    return temp
 
 
 def splashing_image(img, p):
@@ -172,25 +201,38 @@ def look_for_dices(img, params):
 
 
 def parse_image(img):
-    dices = try_to_find_dices(img)
-    min_coverage = .0025
+    dices_candidates = try_to_find_dices(img)
     fig, ax = plt.subplots(figsize=(10, 6))
-    if len(dices) > 0:
-        width, height = len(img), len(img[0])
-        image_area = width * height
-        filtered = [x for x in dices if x['rarea'] > image_area * min_coverage]
-        filtered = remove_with_single_color(filtered, img)
-        sort_by_key(filtered, 'rarea')
-        filtered = remove_outliers_on_field(filtered, 'width', 1.6, False)
-        filtered = remove_outliers_on_field(filtered, 'height', 1.6, False)
-        filtered = remove_outliers_on_field(filtered, 'rarea', 1.8, False)
-        total_length = len(filtered)
-        if total_length > 0:
-            dices = concat_if_condition_met(filtered, lambda c1, c2: is_overlaped_by(c1, c2))
-            dots_on_dices = prepare_dice_to_draw(dices, img)
-            dices_to_draw = filter_dices_to_draw(zip(dots_on_dices, dices))
-            draw_dices(ax, dices_to_draw, img)
+    if len(dices_candidates) > 0:
+        dices = filter_dices_after_discovering(dices_candidates, img)
+        dots_on_dices = prepare_dice_to_draw(dices, img)
+        dices_to_draw = filter_dices_to_draw(zip(dots_on_dices, dices))
+        draw_dices(ax, dices_to_draw, img)
     ax.imshow(img)
+
+
+def filter_dices_after_discovering(candidates, img):
+    min_coverage = .0025
+    width, height = len(img), len(img[0])
+    image_area = width * height
+    filtered = [x for x in candidates if x['rarea'] > image_area * min_coverage]
+    filtered = remove_with_single_color(filtered, img)
+    sort_by_key(filtered, 'rarea')
+    filtered = remove_outliers_on_field(filtered, 'width', 1.6, False)
+    filtered = remove_outliers_on_field(filtered, 'height', 1.6, False)
+    filtered = remove_outliers_on_field(filtered, 'rarea', 1.8, False)
+    dices = merge_if_multiple_same_detections(filtered)
+    dices = remove_outliers_on_field(dices, 'rarea', 1.8, False)
+    return dices
+
+
+def merge_if_multiple_same_detections(candidates):
+    # needed 2x loops, because there is possibility that two
+    # areas are very close, are connected with another, but in one loop wont connect,
+    # for example 3 rectangles a - b - c, common part a, b == 60%, b, c == 60%, a,c == 20 -> 20 is too low
+    candidates = concat_if_condition_met(candidates, lambda c1, c2: is_overlaped_by(c1, c2))
+    candidates = concat_if_condition_met(candidates, lambda c1, c2: is_overlaped_by(c1, c2))
+    return candidates
 
 
 def is_overlaped_by(c1, c2):
@@ -357,6 +399,7 @@ def filter_dots(filtered, dice, img):
     filtered = remove_in_corners(filtered, dice)
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = concat_if_condition_met(filtered, lambda c1, c2: has_lower_real_area(c1, c2) and does_include(c1, c2, 2))
+    filtered = merge_if_multiple_same_detections(filtered)
     filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.1), ('area', 1.15)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered

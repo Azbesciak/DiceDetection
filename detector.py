@@ -36,7 +36,7 @@ dicesToRead = [
     '01', '02', '03', '04', '05',
     '06', '07', '08', '09', '10',
     '11', '12', '13', '14', '15',
-    '16','17'
+    '16','17', '19', '20'
 ]
 
 # dicesToRead = [
@@ -46,8 +46,10 @@ dicesToRead = [
    #  '14',
     # '02'
     # '08',
+    # '09',
     # '16',
-    # '07'
+    # '07',
+    # '19','20'
 # ]
 
 params_for_dices = [
@@ -62,6 +64,7 @@ params_for_dices = [
 params_for_dotes = [
     {'sig': 0.4, 'low': 0.1, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
     {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)},
+    # {'edgeFunc': lambda img, p: double_sobel(img, p)},
     # {'gamma': 4, 'close': 2, 'median': 2, 'sobel': True, 'edgeFunc': lambda img, p: dots_filter(img, p)},
     # {'gamma': 4, 'close': 2, 'median': 2, 'edgeFunc': lambda img, p: dots_filter(img, p)}
 ]
@@ -165,6 +168,21 @@ def dots_filter(img, p):
     return temp
 
 
+def double_sobel(img, p):
+    temp = rgb2gray(img)
+    temp = ski.filters.median(temp, square(10))
+    temp1 = apply_threshold(temp)
+    temp = rgb2gray(img) - temp1
+    temp[temp < 0] = 0
+    temp = ski.filters.median(temp, square(10))
+    temp = apply_threshold(temp)
+    temp = 1 - temp
+    temp = temp1 - temp
+    temp[temp < 0] = 0
+    temp = ski.filters.sobel(temp)
+    return temp
+
+
 def apply_threshold(img):
     thresh = threshold_otsu(img)
     img[img <= thresh] = 0
@@ -257,13 +275,22 @@ def is_multi_color(img):
     ar_range = int(255 / 5) + 1
     for x in range(len(img_copy)):
         for y in range(len(img_copy[0])):
-            r = int(img_copy[x][y][0] / ar_range) * ar_range
-            g = int(img_copy[x][y][1] / ar_range) * ar_range
-            b = int(img_copy[x][y][2] / ar_range) * ar_range
-            img_copy[x][y] = [r, g, b]
-            vals.append((r, g, b))
+            res = discrete_colors(ar_range, img_copy, x, y)
+            vals.append(res)
     unique_vals = len(set(vals))
     return not exposure.is_low_contrast(img_copy) and unique_vals > 10
+
+
+def discrete_colors(range, img, x, y):
+    r = discrete_val(img[x][y][0], range)
+    g = discrete_val(img[x][y][1], range)
+    b = discrete_val(img[x][y][2], range)
+    img[x][y] = [r, g, b]
+    return b, g, r
+
+
+def discrete_val(val, range):
+    return int(val / range) * range
 
 
 def concat_if_condition_met(candidates, condition):
@@ -400,6 +427,7 @@ def filter_dots(filtered, dice, img):
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = concat_if_condition_met(filtered, lambda c1, c2: has_lower_real_area(c1, c2) and does_include(c1, c2, 2))
     filtered = merge_if_multiple_same_detections(filtered)
+    # [{'param': 'fill', 'ratio': 1.15}, {'param':'rarea', 'ratio': 1.1}, {'param':}]
     filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.1), ('area', 1.15)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
@@ -455,7 +483,7 @@ def is_filled_circle(zero_one_img):
             (0.9 <= outside_color and inside_color <= 0.4))
 
 
-def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=True, percent=0.25):
+def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=True, percent=0.25, allow_more=False):
     if len(filtered) == 0:
         return []
 
@@ -470,7 +498,7 @@ def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=Tr
         to_compare = field_values[comparing_idx]
         dif = to_compare * (ration - 1)
         indexes.extend([i for (i, f) in enumerate(filtered)
-                        if to_compare + dif >= f[field_name] >= to_compare - dif])
+                        if f[field_name] >= to_compare - dif and (allow_more or to_compare + dif >= f[field_name])])
     indexes = list(set(indexes))
     return [filtered[i] for i in indexes]
 

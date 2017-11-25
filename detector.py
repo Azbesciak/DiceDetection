@@ -51,9 +51,11 @@ dicesToRead = [
     # '16',
     # '06',
     # '19',
-    # '20,'
+    # '20',
     # '13'
     # '15'
+    # '05'
+    # '22'
 # ]
 
 
@@ -70,7 +72,7 @@ params_for_dotes = [
     {'sig': 0.4, 'low': 0.1, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
     {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)},
     {'edgeFunc': lambda img, p: double_sobel(img, p)},
-    {'edgeFunc': lambda img, p: dots_filter_3(img, p)}
+    {'edgeFunc': lambda img, p: negative_on_v_and_canny(img, p)},
 ]
 
 
@@ -86,6 +88,7 @@ allresults = []
 
 
 def show_all_labels():
+    fig = plt.figure(facecolor="black", figsize=(60, 60))
     for i, res in enumerate(allresults):
         label = get_labels(res)
         draw_dice_image_aligned(len(allresults), i, label)
@@ -93,7 +96,7 @@ def show_all_labels():
 
 def draw_dice_image_aligned(total, i, img):
     in_row = int(sqrt(total)) + 1
-    ax = plt.subplot(in_row, in_row, i + 1)
+    ax = plt.subplot(in_row, 5, i + 1)
     plt.imshow(img)
     return ax
 
@@ -173,33 +176,26 @@ def splashing_image(img, p):
 
 
 def dots_filter(img, p):
-    temp = -img
-    temp = rgb2gray(temp)
-    temp = (temp ** 4)
-    temp = ski.morphology.closing(temp)
+    temp = rgb2gray(img)
+    temp = 1 - temp
+    temp = temp ** 0.05
+    temp = ski.morphology.erosion(temp)
     temp = apply_threshold(temp)
-    temp = filters.median(temp)
-    temp = ski.morphology.dilation(temp, square(2))
-    temp = ski.feature.canny(temp, sigma=0.4)
+    temp = 1 - temp
+    temp = filters.median(temp, square(6))
     return temp
 
 
 def dots_filter_2(img, p):
-    temp = -img
-    temp = rgb2gray(temp)
-    temp = (temp ** 4)
-    temp = ski.morphology.closing(temp)
+    temp = rgb2gray(img)
+    temp = ski.filters.median(temp, square(10))
+    temp = (temp / 255) ** 2
     temp = apply_threshold(temp)
-    temp = filters.median(temp)
-    xyz = np.zeros((len(temp), len(temp[0])))
-    contours = measure.find_contours(temp, 0.3)
-    for n, contour in enumerate(contours):
-        for con in contour:
-            xyz[int(con[0])][int(con[1])] = 1
-    return xyz
+    temp = ski.feature.canny(temp)
+    return temp
 
 
-def dots_filter_3(img, p):
+def negative_on_v_and_canny(img, p):
     temp = rgb2hsv(img)
     temp = 1 - temp[:, :, 2]
     temp = filters.median(temp)
@@ -452,6 +448,7 @@ def get_regions_from_dice(dice_img, par):
     regions = []
     for p in par:
         img = p['edgeFunc'](dice_img, p)
+        allresults.append(img)
         if not is_one_value_image(img):
             regions.extend(find_regions(img))
     return regions
@@ -483,7 +480,6 @@ def filter_dots(filtered, dice, img):
     filtered = remove_mistaken_dots(filtered, ratio)
     filtered = concat_if_condition_met(filtered, lambda c1, c2: has_lower_real_area(c1, c2) and does_include(c1, c2, 2))
     filtered = merge_if_multiple_same_detections(filtered)
-    # [{'param': 'fill', 'ratio': 1.15}, {'param':'rarea', 'ratio': 1.1}, {'param':}]
     filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.15), ('area', 1.18)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered

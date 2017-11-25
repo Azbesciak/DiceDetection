@@ -39,19 +39,21 @@ dicesToRead = [
     '16','17', '19', '20'
 ]
 
-dicesToRead = [
+# dicesToRead = [
    # '17',
    # '11',
    #  '01',
    #  '14',
-    # '02'
-    # '13'
+   #  '07',
+   #  '06'
     # '08',
     # '09',
-    '16',
-    # '07',
-    # '19','20'
-]
+    # '16',
+    # '06',
+    # '19',
+    # '20,'
+    # '13'
+# ]
 
 params_for_dices = [
     {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
@@ -66,8 +68,7 @@ params_for_dotes = [
     {'sig': 0.4, 'low': 0.1, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
     {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)},
     {'edgeFunc': lambda img, p: double_sobel(img, p)},
-    # {'gamma': 4, 'close': 2, 'median': 2, 'sobel': True, 'edgeFunc': lambda img, p: dots_filter(img, p)},
-    # {'gamma': 4, 'close': 2, 'median': 2, 'edgeFunc': lambda img, p: dots_filter(img, p)}
+    {'edgeFunc': lambda img, p: dots_filter_3(img, p)}
 ]
 
 
@@ -84,6 +85,14 @@ def draw_dice_image_aligned(total, i, img):
     ax = plt.subplot(in_row, int(total / in_row), i)
     plt.imshow(img)
     return ax
+
+
+def d_s_l(img1, imres):
+    thresh = threshold_otsu(imres)
+    bw = closing(imres > thresh, square(2))
+    cleared = clear_border(bw)
+    label_image = label(cleared)
+    debug_show(img1, label_image)
 
 
 def debug_show(img1, img2):
@@ -158,13 +167,40 @@ def splashing_image(img, p):
 def dots_filter(img, p):
     temp = -img
     temp = rgb2gray(temp)
-    temp = (temp ** p['gamma'])
-    temp = ski.morphology.closing(temp, square(p['close']))
+    temp = (temp ** 4)
+    temp = ski.morphology.closing(temp)
     temp = apply_threshold(temp)
-    temp = filters.median(temp, square(p['median']))
-    if 'sobel' in p:
-        temp = filters.sobel(temp)
-        temp = apply_threshold(temp)
+    temp = filters.median(temp)
+    temp = ski.morphology.dilation(temp, square(2))
+    temp = ski.feature.canny(temp, sigma=0.4)
+    return temp
+
+
+def dots_filter_2(img, p):
+    temp = -img
+    temp = rgb2gray(temp)
+    temp = (temp ** 4)
+    temp = ski.morphology.closing(temp)
+    temp = apply_threshold(temp)
+    temp = filters.median(temp)
+    xyz = np.zeros((len(temp), len(temp[0])))
+    contours = measure.find_contours(temp, 0.3)
+    for n, contour in enumerate(contours):
+        for con in contour:
+            xyz[int(con[0])][int(con[1])] = 1
+    return xyz
+
+
+def dots_filter_3(img, p):
+    temp = rgb2hsv(img)
+    temp = 1 - temp[:, :, 2]
+    temp = filters.median(temp)
+    temp = ski.morphology.erosion(temp)
+    temp = (temp / 255) ** 2
+    temp = ski.morphology.closing(temp)
+    temp = apply_threshold(temp)
+    temp = ski.morphology.dilation(temp, square(2))
+    temp = ski.feature.canny(temp, 0.9)
     return temp
 
 
@@ -435,7 +471,7 @@ def filter_dots(filtered, dice, img):
     filtered = concat_if_condition_met(filtered, lambda c1, c2: has_lower_real_area(c1, c2) and does_include(c1, c2, 2))
     filtered = merge_if_multiple_same_detections(filtered)
     # [{'param': 'fill', 'ratio': 1.15}, {'param':'rarea', 'ratio': 1.1}, {'param':}]
-    filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.15), ('area', 1.15)])
+    filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.15), ('area', 1.18)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
 
@@ -503,7 +539,7 @@ def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=Tr
             field_values.sort(reverse=True)
         comparing_idx = int(len(field_values) * percent)
         to_compare = field_values[comparing_idx]
-        dif = to_compare * (ration - 1)
+        dif = round(to_compare * (ration - 1))
         indexes.extend([i for (i, f) in enumerate(filtered)
                         if f[field_name] >= to_compare - dif and (allow_more or to_compare + dif >= f[field_name])])
     indexes = list(set(indexes))
@@ -514,11 +550,10 @@ def remove_too_small_and_too_big(filtered, dice):
     return [x for x in filtered if dice['rarea'] / 10 >= x['rarea'] >= dice['rarea'] * 0.005]
 
 
-def remove_in_corners(filtered, dice):
+def remove_in_corners(filtered, dice, bound_lim=0.05):
     res = []
-    bound_lim = 0.05
-    width_bound = dice['width'] * bound_lim
-    height_bound = dice['height'] * bound_lim
+    width_bound = max(dice['width'] * bound_lim, 5)
+    height_bound = max(5, dice['height'] * bound_lim)
     for f in filtered:
         if not ((width_bound > f['minx'] and height_bound > f['miny']) or
                 (width_bound > f['minx'] and dice['height'] - height_bound < f['maxy']) or

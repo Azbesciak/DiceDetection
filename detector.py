@@ -39,18 +39,19 @@ dicesToRead = [
     '16','17', '19', '20'
 ]
 
-# dicesToRead = [
+dicesToRead = [
    # '17',
    # '11',
    #  '01',
    #  '14',
     # '02'
+    # '13'
     # '08',
     # '09',
-    # '16',
+    '16',
     # '07',
     # '19','20'
-# ]
+]
 
 params_for_dices = [
     {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
@@ -64,7 +65,7 @@ params_for_dices = [
 params_for_dotes = [
     {'sig': 0.4, 'low': 0.1, 'high': 0.3, 'edgeFunc': lambda img, p: just_canny_and_dilation(img, p)},
     {'gamma': 1, 'sig': 1, 'l': 0, 'u': 100, 'edgeFunc': lambda img, p: get_edges(img, p)},
-    # {'edgeFunc': lambda img, p: double_sobel(img, p)},
+    {'edgeFunc': lambda img, p: double_sobel(img, p)},
     # {'gamma': 4, 'close': 2, 'median': 2, 'sobel': True, 'edgeFunc': lambda img, p: dots_filter(img, p)},
     # {'gamma': 4, 'close': 2, 'median': 2, 'edgeFunc': lambda img, p: dots_filter(img, p)}
 ]
@@ -133,7 +134,6 @@ def high_percentile_shrink(img, p):
 def sobel_and_scharr_connected(img, p):
     temp = img
     temp = rgb2gray(temp)
-
     temp = temp ** p['gamma']
     temp1 = ski.filters.sobel(temp)
     temp2 = ski.filters.scharr(temp)
@@ -174,19 +174,24 @@ def double_sobel(img, p):
     temp1 = apply_threshold(temp)
     temp = rgb2gray(img) - temp1
     temp[temp < 0] = 0
-    temp = ski.filters.median(temp, square(10))
+    temp = ski.filters.median(temp, square(13))
     temp = apply_threshold(temp)
     temp = 1 - temp
     temp = temp1 - temp
     temp[temp < 0] = 0
-    temp = ski.filters.sobel(temp)
+    temp = ski.filters.median(temp, square(13))
+    temp = ski.feature.canny(temp, sigma=2)
+    temp = apply_threshold(temp)
+    temp = ski.morphology.dilation(temp, square(10))
+    temp = ski.feature.canny(temp, sigma=0.2)
     return temp
 
 
 def apply_threshold(img):
-    thresh = threshold_otsu(img)
-    img[img <= thresh] = 0
-    img[img > thresh] = 1
+    if not is_one_value_image(img):
+        thresh = threshold_otsu(img)
+        img[img <= thresh] = 0
+        img[img > thresh] = 1
     return img
 
 
@@ -369,7 +374,9 @@ def filter_dices(regions):
 
 
 def find_regions(image):
-    thresh = threshold_otsu(image)
+    thresh = 0
+    if not is_one_value_image(image):
+        thresh = threshold_otsu(image)
     bw = closing(image > thresh, square(2))
     cleared = clear_border(bw)
     label_image = label(cleared)
@@ -428,7 +435,7 @@ def filter_dots(filtered, dice, img):
     filtered = concat_if_condition_met(filtered, lambda c1, c2: has_lower_real_area(c1, c2) and does_include(c1, c2, 2))
     filtered = merge_if_multiple_same_detections(filtered)
     # [{'param': 'fill', 'ratio': 1.15}, {'param':'rarea', 'ratio': 1.1}, {'param':}]
-    filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.1), ('area', 1.15)])
+    filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.15), ('area', 1.15)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
 

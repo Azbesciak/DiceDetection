@@ -53,7 +53,9 @@ dicesToRead = [
     # '19',
     # '20,'
     # '13'
+    # '15'
 # ]
+
 
 params_for_dices = [
     {'gamma': 0.4, 'sig': 2.7, 'l': 91, 'u': 90, 'edgeFunc': lambda img, p: get_edges(img, p)},
@@ -80,18 +82,24 @@ def draw_dice_image(i, img):
     plt.imshow(img)
 
 
+allresults = []
+
+
+def show_all_labels():
+    for i, res in enumerate(allresults):
+        label = get_labels(res)
+        draw_dice_image_aligned(len(allresults), i, label)
+
+
 def draw_dice_image_aligned(total, i, img):
-    in_row = int(total / 3) + 1
-    ax = plt.subplot(in_row, int(total / in_row), i)
+    in_row = int(sqrt(total)) + 1
+    ax = plt.subplot(in_row, in_row, i + 1)
     plt.imshow(img)
     return ax
 
 
 def d_s_l(img1, imres):
-    thresh = threshold_otsu(imres)
-    bw = closing(imres > thresh, square(2))
-    cleared = clear_border(bw)
-    label_image = label(cleared)
+    label_image = get_labels(imres)
     debug_show(img1, label_image)
 
 
@@ -410,13 +418,18 @@ def filter_dices(regions):
 
 
 def find_regions(image):
+    label_image = get_labels(image)
+    return regionprops(label_image)
+
+
+def get_labels(image):
     thresh = 0
     if not is_one_value_image(image):
         thresh = threshold_otsu(image)
     bw = closing(image > thresh, square(2))
     cleared = clear_border(bw)
     label_image = label(cleared)
-    return regionprops(label_image)
+    return label_image
 
 
 def validate_region(region, values, validation_fun, color='blue'):
@@ -547,7 +560,7 @@ def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=Tr
 
 
 def remove_too_small_and_too_big(filtered, dice):
-    return [x for x in filtered if dice['rarea'] / 10 >= x['rarea'] >= dice['rarea'] * 0.005]
+    return [x for x in filtered if dice['rarea'] / 6 >= x['rarea'] >= dice['rarea'] * 0.005]
 
 
 def remove_in_corners(filtered, dice, bound_lim=0.05):

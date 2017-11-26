@@ -46,7 +46,7 @@ dicesToRead = [
    #  '14',
    #  '07',
    #  '06'
-    # '08',
+   #  '08',
     # '09',
     # '16',
     # '06',
@@ -56,6 +56,7 @@ dicesToRead = [
     # '15'
     # '05'
     # '22'
+    # '26'
 # ]
 
 
@@ -176,22 +177,22 @@ def splashing_image(img, p):
 
 
 def dots_filter(img, p):
-    temp = rgb2gray(img)
-    temp = 1 - temp
-    temp = temp ** 0.05
-    temp = ski.morphology.erosion(temp)
+    # temp = rgb2gray(img)
+    # # temp = filters.median(temp, square(10))
+    # temp = (temp / 255) ** .05
+    # pp, pk = np.percentile(temp, (20, 80))
+    # temp = exposure.rescale_intensity(temp, in_range=(pp, pk))
+    # temp = exposure.equalize_adapthist(temp)
+    # temp = apply_threshold(temp)
+    # if np.average(temp) < 0.6:
+    #     temp = 1 - temp
+    temp = rgb2hsv(img)
+    temp = temp[:, :, 2]
+    pp, pk = np.percentile(temp, (20, 80))
+    temp = exposure.rescale_intensity(temp, in_range=(pp, pk))
     temp = apply_threshold(temp)
-    temp = 1 - temp
-    temp = filters.median(temp, square(6))
-    return temp
-
-
-def dots_filter_2(img, p):
-    temp = rgb2gray(img)
-    temp = ski.filters.median(temp, square(10))
-    temp = (temp / 255) ** 2
-    temp = apply_threshold(temp)
-    temp = ski.feature.canny(temp)
+    if np.average(temp) < 0.6:
+        temp = 1 - temp
     return temp
 
 
@@ -478,8 +479,10 @@ def filter_dots(filtered, dice, img):
     filtered = remove_too_small_and_too_big(filtered, dice)
     filtered = remove_in_corners(filtered, dice)
     filtered = remove_mistaken_dots(filtered, ratio)
+    # filtered = look_for_dots_on_img(filtered, img)
     filtered = concat_if_condition_met(filtered, lambda c1, c2: has_lower_real_area(c1, c2) and does_include(c1, c2, 2))
     filtered = merge_if_multiple_same_detections(filtered)
+    filtered = get_rectangles_with_dim(filtered, ratio)
     filtered = remove_outliers_on_field(filtered, [('fill', 1.15), ('rarea', 1.15), ('area', 1.18)])
     filtered = remove_the_farthest_if_more_than_six(filtered)
     return filtered
@@ -488,7 +491,7 @@ def filter_dots(filtered, dice, img):
 def look_for_dots_on_img(filtered, img):
     res = []
     for f in filtered:
-        scalar = 0.1
+        scalar = 0.0
         width_bound = int(f['width'] * scalar)
         height_bound = int(f['height'] * scalar)
         cor = {
@@ -501,9 +504,9 @@ def look_for_dots_on_img(filtered, img):
         if min_dim > 0:
 
             fragment = get_img_fragment(cor, img)
-            edges = dots_filter(fragment, {'gamma': 4, 'close': 2, 'median': 2})
+            edges = dots_filter(fragment, {})
 
-            if is_filled_circle(edges/255):
+            if is_filled_circle(edges):
                 res.append(f)
     return res
 
@@ -513,15 +516,15 @@ def is_filled_circle(zero_one_img):
     max_y = len(zero_one_img[0]) - 1
     cx = int(max_x / 2)
     cy = int(max_y / 2)
-    r = int(min(cx, cy)/3)
+    r = int(min(cx, cy))
     inside = []
     outside = []
     for x in range(0, max_x + 1):
         for y in range(0, max_y + 1):
             current_r = sqrt((cx - x) ** 2 + (cy - y) ** 2)
-            if current_r <= r:
+            if current_r <= r*0.75:
                 inside.append(zero_one_img[x][y])
-            elif current_r >= r*4:
+            elif current_r >= r*1.25:
                 outside.append(zero_one_img[x][y])
 
     if len(inside) == 0:
@@ -531,8 +534,8 @@ def is_filled_circle(zero_one_img):
     if len(outside) > 0:
         outside_color = sum(outside)/len(outside)
 
-    return ((0.9 <= inside_color and outside_color <= 0.4) or
-            (0.9 <= outside_color and inside_color <= 0.4))
+    return ((0.85 <= inside_color and outside_color <= 0.4) or
+            (0.85 <= outside_color and inside_color <= 0.4))
 
 
 def remove_outliers_on_field(filtered, fields, accept_ratio=None, should_sort=True, percent=0.25, allow_more=False):
